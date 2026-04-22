@@ -15,7 +15,7 @@
 </template>
 
 <script setup lang="ts">
-import { BookOpen, Cloud, Compass, Download } from 'lucide-vue-next'
+import { BookOpen, Cloud, Compass, Download, Settings } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
@@ -25,6 +25,7 @@ const items = [
   { path: '/online', label: '发现', icon: Compass },
   { path: '/download', label: '下载', icon: Download },
   { path: '/cloud', label: '云盘', icon: Cloud },
+  { path: '/setting', label: '设置', icon: Settings },
 ]
 
 function isActive(path: string) {

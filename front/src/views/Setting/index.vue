@@ -2,7 +2,7 @@
   <div class="page settings-page">
     <p class="label-caps">设置</p>
     <h1 class="page-title">设置</h1>
-    <p class="page-subtitle">漫画库、导入和 App 构建信息都放在这里。</p>
+    <p class="page-subtitle">漫画库、阅读、存储、构建。</p>
 
     <section class="surface-card setting-card library-card">
       <div class="setting-card-header">
@@ -48,9 +48,29 @@
     </section>
 
     <section class="surface-card setting-card">
+      <div class="setting-card-header">
+        <div>
+          <h2>阅读偏好</h2>
+          <p>默认阅读器</p>
+        </div>
+        <span class="status-pill">计划中</span>
+      </div>
+    </section>
+
+    <section class="surface-card setting-card">
+      <div class="setting-card-header">
+        <div>
+          <h2>存储管理</h2>
+          <p>本地书库</p>
+        </div>
+        <span class="status-pill">{{ library.count }} 本</span>
+      </div>
+    </section>
+
+    <section class="surface-card setting-card">
       <div>
         <h2>打包方式</h2>
-        <p>APK 由 GitHub Actions 构建，本机不需要安装 Android Studio 或 Android SDK。</p>
+        <p>GitHub Actions · Debug APK</p>
       </div>
     </section>
   </div>
@@ -191,5 +211,18 @@ async function handleImageFilesImport(event: Event, label: string) {
 .import-message a {
   color: var(--color-accent-bright);
   text-decoration: none;
+}
+
+.status-pill {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 12px;
+  color: var(--color-accent-bright);
+  background: rgba(184, 155, 114, 0.12);
+  font-size: 12px;
+  white-space: nowrap;
 }
 </style>
