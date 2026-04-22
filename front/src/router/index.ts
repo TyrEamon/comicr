@@ -9,6 +9,9 @@ import Setting from '@/views/Setting/index.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
+  scrollBehavior() {
+    return { top: 0 }
+  },
   routes: [
     { path: '/', name: 'library', component: Library, meta: { title: '书库' } },
     { path: '/online', name: 'online', component: Online, meta: { title: '发现' } },

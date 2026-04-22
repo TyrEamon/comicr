@@ -1,41 +1,47 @@
 <template>
   <div class="app-shell" :class="{ fullscreen }">
     <MobileTopBar v-if="!fullscreen" :title="title" @menu="openMenu" @search="handleSearch" />
-    <div v-if="searchOpen" class="floating-search" @click.stop>
-      <input
-        ref="searchInput"
-        v-model="searchQuery"
-        class="text-input"
-        type="search"
-        :placeholder="`搜索${title}`"
-        aria-label="搜索"
-        @input="emitSearch"
-      />
-    </div>
+    <Transition name="search-pop">
+      <div v-if="searchOpen" class="floating-search" @click.stop>
+        <input
+          ref="searchInput"
+          v-model="searchQuery"
+          class="text-input"
+          type="search"
+          :placeholder="`搜索${title}`"
+          aria-label="搜索"
+          @input="emitSearch"
+        />
+      </div>
+    </Transition>
     <main class="app-content" :class="{ 'with-bottom-nav': showBottomNav }">
       <slot />
     </main>
     <MobileBottomNav v-if="showBottomNav" />
 
-    <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false" />
-    <aside v-if="menuOpen" class="side-menu" aria-label="快捷菜单">
-      <div class="side-menu-header">
-        <div>
-          <span class="brand">漫画云读</span>
-          <p>快捷入口</p>
+    <Transition name="scrim-fade">
+      <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false" />
+    </Transition>
+    <Transition name="side-drawer">
+      <aside v-if="menuOpen" class="side-menu" aria-label="快捷菜单">
+        <div class="side-menu-header">
+          <div>
+            <span class="brand">漫画云读</span>
+            <p>快捷入口</p>
+          </div>
+          <button class="top-icon" type="button" aria-label="关闭菜单" @click="menuOpen = false">
+            <X :size="22" />
+          </button>
         </div>
-        <button class="top-icon" type="button" aria-label="关闭菜单" @click="menuOpen = false">
-          <X :size="22" />
-        </button>
-      </div>
 
-      <nav class="side-menu-links">
-        <RouterLink v-for="item in menuItems" :key="item.path" :to="item.path" @click="menuOpen = false">
-          <component :is="item.icon" :size="20" />
-          <span>{{ item.label }}</span>
-        </RouterLink>
-      </nav>
-    </aside>
+        <nav class="side-menu-links">
+          <RouterLink v-for="item in menuItems" :key="item.path" :to="item.path" @click="menuOpen = false">
+            <component :is="item.icon" :size="20" />
+            <span>{{ item.label }}</span>
+          </RouterLink>
+        </nav>
+      </aside>
+    </Transition>
   </div>
 </template>
 
@@ -162,5 +168,39 @@ function emitSearch() {
 .side-menu-links a.router-link-active {
   color: var(--color-accent-bright);
   background: rgba(184, 155, 114, 0.12);
+}
+
+.search-pop-enter-active,
+.search-pop-leave-active {
+  transition: opacity 180ms ease, transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: opacity, transform;
+}
+
+.search-pop-enter-from,
+.search-pop-leave-to {
+  opacity: 0;
+  transform: translate3d(0, -8px, 0) scale(0.98);
+}
+
+.scrim-fade-enter-active,
+.scrim-fade-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.scrim-fade-enter-from,
+.scrim-fade-leave-to {
+  opacity: 0;
+}
+
+.side-drawer-enter-active,
+.side-drawer-leave-active {
+  transition: opacity 190ms ease, transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: opacity, transform;
+}
+
+.side-drawer-enter-from,
+.side-drawer-leave-to {
+  opacity: 0;
+  transform: translate3d(-18px, 0, 0);
 }
 </style>

@@ -17,16 +17,19 @@
         @touchstart.passive="handleGalleryTouchStart"
         @touchend.passive="handleGalleryTouchEnd"
       >
-        <img
-          v-if="currentImage?.src"
-          class="reader-image"
-          :class="{ 'fit-width': fitMode === 'width' }"
-          :src="currentImage.src"
-          :alt="currentImage.name"
-          :style="imageStyle"
-          @click.stop="handleGalleryTap"
-        />
-        <div v-else class="reader-image-placeholder" @click.stop="handleGalleryTap">正在加载当前页...</div>
+        <Transition name="reader-image-fade" mode="out-in">
+          <img
+            v-if="currentImage?.src"
+            :key="currentImage.id"
+            class="reader-image"
+            :class="{ 'fit-width': fitMode === 'width' }"
+            :src="currentImage.src"
+            :alt="currentImage.name"
+            :style="imageStyle"
+            @click.stop="handleGalleryTap"
+          />
+          <div v-else key="reader-placeholder" class="reader-image-placeholder" @click.stop="handleGalleryTap">正在加载当前页...</div>
+        </Transition>
       </div>
 
       <div
@@ -56,128 +59,140 @@
         </div>
       </div>
 
-      <div v-if="controlsVisible" class="reader-top" @click.stop>
-        <button class="reader-icon" type="button" aria-label="返回" @click="router.back()">
-          <ArrowLeft :size="24" />
-        </button>
-        <div>
-          <span>{{ isCloudReader ? '云盘' : '书库' }}</span>
-          <strong>{{ manga?.title || '阅读器' }}</strong>
-        </div>
-        <button class="reader-icon" type="button" aria-label="收藏" @click="toggleFavorite">
-          <Bookmark :size="22" :fill="favorite ? 'currentColor' : 'none'" />
-        </button>
-      </div>
-
-      <div v-if="controlsVisible" class="reader-bottom" @click.stop>
-        <div class="reader-progress-row">
-          <button class="reader-page-button" type="button" aria-label="回到开头" @click="jumpToStart">
-            <ChevronsLeft :size="24" />
+      <Transition name="reader-top-slide">
+        <div v-if="controlsVisible" class="reader-top" @click.stop>
+          <button class="reader-icon" type="button" aria-label="返回" @click="router.back()">
+            <ArrowLeft :size="24" />
           </button>
-
-          <div class="reader-progress">
-            <span class="reader-progress-value">{{ currentIndex + 1 }}</span>
-            <input
-              :value="currentIndex"
-              type="range"
-              min="0"
-              :max="lastImageIndex"
-              step="1"
-              aria-label="阅读进度"
-              @input="handleProgressInput"
-            />
-            <span class="reader-progress-value total">{{ images.length }}</span>
+          <div>
+            <span>{{ isCloudReader ? '云盘' : '书库' }}</span>
+            <strong>{{ manga?.title || '阅读器' }}</strong>
           </div>
-
-          <button class="reader-page-button" type="button" aria-label="跳到末尾" @click="jumpToEnd">
-            <ChevronsRight :size="24" />
+          <button class="reader-icon" type="button" aria-label="收藏" @click="toggleFavorite">
+            <Bookmark :size="22" :fill="favorite ? 'currentColor' : 'none'" />
           </button>
         </div>
+      </Transition>
 
-        <div v-if="brightnessVisible" class="reader-panel" aria-label="亮度">
-          <span>亮度</span>
-          <input v-model.number="brightness" type="range" min="60" max="140" step="5" aria-label="亮度" @input="scheduleHide" />
-          <strong>{{ brightness }}%</strong>
-        </div>
+      <Transition name="reader-bottom-slide">
+        <div v-if="controlsVisible" class="reader-bottom" @click.stop>
+          <div class="reader-progress-row">
+            <button class="reader-page-button" type="button" aria-label="回到开头" @click="jumpToStart">
+              <ChevronsLeft :size="24" />
+            </button>
 
-        <div v-if="pageListVisible" class="reader-page-strip" aria-label="页面列表">
-          <button
-            v-for="(_, index) in images"
-            :key="index"
-            class="reader-page-chip"
-            :class="{ active: index === currentIndex }"
-            type="button"
-            @click="goToPage(index)"
-          >
-            {{ index + 1 }}
-          </button>
-        </div>
-
-        <div v-if="downloadMessage" class="reader-download-status">{{ downloadMessage }}</div>
-
-        <div class="reader-actions" :class="{ 'has-cloud-download': isCloudReader }">
-          <button class="reader-tool" :class="{ active: brightnessVisible }" type="button" aria-label="亮度" @click="toggleBrightness">
-            <Sun :size="24" />
-          </button>
-          <button class="reader-tool" :class="{ active: favorite }" type="button" aria-label="收藏" @click="toggleFavorite">
-            <Bookmark :size="24" :fill="favorite ? 'currentColor' : 'none'" />
-          </button>
-          <button class="reader-tool" :class="{ active: pageListVisible }" type="button" aria-label="页面列表" @click="togglePageList">
-            <PanelTop :size="24" />
-          </button>
-          <button class="reader-tool" type="button" aria-label="重新加载当前页" @click="reloadCurrentPage">
-            <RefreshCw :size="23" />
-          </button>
-          <button
-            v-if="isCloudReader"
-            class="reader-tool"
-            type="button"
-            :aria-label="cloudDownloaded ? '已下载当前漫画' : '下载当前漫画'"
-            :disabled="downloadBusy || cloudDownloaded"
-            @click="downloadCurrentCloudManga"
-          >
-            <Check v-if="cloudDownloaded" :size="23" />
-            <DownloadIcon v-else :size="23" />
-          </button>
-          <button class="reader-tool" :class="{ active: readerSettingsVisible }" type="button" aria-label="阅读设置" @click="toggleReaderSettings">
-            <Settings :size="24" />
-          </button>
-        </div>
-      </div>
-
-      <div v-if="readerSettingsVisible" class="reader-settings-backdrop" @click.stop="closeReaderSettings">
-        <aside class="reader-settings-drawer" aria-label="阅读设置" @click.stop>
-          <div class="reader-settings-header">
-            <div>
-              <p class="drawer-label">阅读中</p>
-              <h2>阅读设置</h2>
+            <div class="reader-progress">
+              <span class="reader-progress-value">{{ currentIndex + 1 }}</span>
+              <input
+                :value="currentIndex"
+                type="range"
+                min="0"
+                :max="lastImageIndex"
+                step="1"
+                aria-label="阅读进度"
+                @input="handleProgressInput"
+              />
+              <span class="reader-progress-value total">{{ images.length }}</span>
             </div>
-            <button class="reader-icon reader-drawer-close" type="button" aria-label="关闭阅读设置" @click="closeReaderSettings">
-              <X :size="20" />
+
+            <button class="reader-page-button" type="button" aria-label="跳到末尾" @click="jumpToEnd">
+              <ChevronsRight :size="24" />
             </button>
           </div>
 
-          <section class="reader-settings-section">
-            <p class="drawer-section-label">阅读模式</p>
-            <button class="reader-mode-option" :class="{ active: readerMode === 'gallery' }" type="button" @click="setReaderMode('gallery')">
-              <strong>画廊</strong>
-              <span>左右滑动切换图片</span>
-            </button>
-            <button class="reader-mode-option" :class="{ active: readerMode === 'continuous' }" type="button" @click="setReaderMode('continuous')">
-              <strong>连续</strong>
-              <span>从上到下连续阅读</span>
-            </button>
-          </section>
-
-          <section class="reader-settings-section">
-            <p class="drawer-section-label">页面适配</p>
-            <div class="reader-settings-segment">
-              <button class="setting-chip drawer-chip" :class="{ active: fitMode === 'contain' }" type="button" @click="setFitMode('contain')">适应屏幕</button>
-              <button class="setting-chip drawer-chip" :class="{ active: fitMode === 'width' }" type="button" @click="setFitMode('width')">适应宽度</button>
+          <Transition name="reader-panel-pop">
+            <div v-if="brightnessVisible" class="reader-panel" aria-label="亮度">
+              <span>亮度</span>
+              <input v-model.number="brightness" type="range" min="60" max="140" step="5" aria-label="亮度" @input="scheduleHide" />
+              <strong>{{ brightness }}%</strong>
             </div>
-          </section>
-        </aside>
-      </div>
+          </Transition>
+
+          <Transition name="reader-panel-pop">
+            <div v-if="pageListVisible" class="reader-page-strip" aria-label="页面列表">
+              <button
+                v-for="(_, index) in images"
+                :key="index"
+                class="reader-page-chip"
+                :class="{ active: index === currentIndex }"
+                type="button"
+                @click="goToPage(index)"
+              >
+                {{ index + 1 }}
+              </button>
+            </div>
+          </Transition>
+
+          <Transition name="reader-panel-pop">
+            <div v-if="downloadMessage" class="reader-download-status">{{ downloadMessage }}</div>
+          </Transition>
+
+          <div class="reader-actions" :class="{ 'has-cloud-download': isCloudReader }">
+            <button class="reader-tool" :class="{ active: brightnessVisible }" type="button" aria-label="亮度" @click="toggleBrightness">
+              <Sun :size="24" />
+            </button>
+            <button class="reader-tool" :class="{ active: favorite }" type="button" aria-label="收藏" @click="toggleFavorite">
+              <Bookmark :size="24" :fill="favorite ? 'currentColor' : 'none'" />
+            </button>
+            <button class="reader-tool" :class="{ active: pageListVisible }" type="button" aria-label="页面列表" @click="togglePageList">
+              <PanelTop :size="24" />
+            </button>
+            <button class="reader-tool" type="button" aria-label="重新加载当前页" @click="reloadCurrentPage">
+              <RefreshCw :size="23" />
+            </button>
+            <button
+              v-if="isCloudReader"
+              class="reader-tool"
+              type="button"
+              :aria-label="cloudDownloaded ? '已下载当前漫画' : '下载当前漫画'"
+              :disabled="downloadBusy || cloudDownloaded"
+              @click="downloadCurrentCloudManga"
+            >
+              <Check v-if="cloudDownloaded" :size="23" />
+              <DownloadIcon v-else :size="23" />
+            </button>
+            <button class="reader-tool" :class="{ active: readerSettingsVisible }" type="button" aria-label="阅读设置" @click="toggleReaderSettings">
+              <Settings :size="24" />
+            </button>
+          </div>
+        </div>
+      </Transition>
+
+      <Transition name="reader-drawer">
+        <div v-if="readerSettingsVisible" class="reader-settings-backdrop" @click.stop="closeReaderSettings">
+          <aside class="reader-settings-drawer" aria-label="阅读设置" @click.stop>
+            <div class="reader-settings-header">
+              <div>
+                <p class="drawer-label">阅读中</p>
+                <h2>阅读设置</h2>
+              </div>
+              <button class="reader-icon reader-drawer-close" type="button" aria-label="关闭阅读设置" @click="closeReaderSettings">
+                <X :size="20" />
+              </button>
+            </div>
+
+            <section class="reader-settings-section">
+              <p class="drawer-section-label">阅读模式</p>
+              <button class="reader-mode-option" :class="{ active: readerMode === 'gallery' }" type="button" @click="setReaderMode('gallery')">
+                <strong>画廊</strong>
+                <span>左右滑动切换图片</span>
+              </button>
+              <button class="reader-mode-option" :class="{ active: readerMode === 'continuous' }" type="button" @click="setReaderMode('continuous')">
+                <strong>连续</strong>
+                <span>从上到下连续阅读</span>
+              </button>
+            </section>
+
+            <section class="reader-settings-section">
+              <p class="drawer-section-label">页面适配</p>
+              <div class="reader-settings-segment">
+                <button class="setting-chip drawer-chip" :class="{ active: fitMode === 'contain' }" type="button" @click="setFitMode('contain')">适应屏幕</button>
+                <button class="setting-chip drawer-chip" :class="{ active: fitMode === 'width' }" type="button" @click="setFitMode('width')">适应宽度</button>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </Transition>
     </template>
   </div>
 </template>
@@ -1041,5 +1056,70 @@ function handleContinuousScroll() {
 
 .drawer-chip {
   width: 100%;
+}
+
+.reader-image-fade-enter-active,
+.reader-image-fade-leave-active {
+  transition: opacity 150ms ease, transform 180ms ease;
+  will-change: opacity, transform;
+}
+
+.reader-image-fade-enter-from,
+.reader-image-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.996);
+}
+
+.reader-top-slide-enter-active,
+.reader-top-slide-leave-active,
+.reader-bottom-slide-enter-active,
+.reader-bottom-slide-leave-active {
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: opacity, transform;
+}
+
+.reader-top-slide-enter-from,
+.reader-top-slide-leave-to {
+  opacity: 0;
+  transform: translate3d(0, -12px, 0);
+}
+
+.reader-bottom-slide-enter-from,
+.reader-bottom-slide-leave-to {
+  opacity: 0;
+  transform: translate3d(0, 18px, 0);
+}
+
+.reader-panel-pop-enter-active,
+.reader-panel-pop-leave-active {
+  transition: opacity 160ms ease, transform 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: opacity, transform;
+}
+
+.reader-panel-pop-enter-from,
+.reader-panel-pop-leave-to {
+  opacity: 0;
+  transform: translate3d(0, 8px, 0) scale(0.98);
+}
+
+.reader-drawer-enter-active,
+.reader-drawer-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.reader-drawer-enter-active .reader-settings-drawer,
+.reader-drawer-leave-active .reader-settings-drawer {
+  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+.reader-drawer-enter-from,
+.reader-drawer-leave-to {
+  opacity: 0;
+}
+
+.reader-drawer-enter-from .reader-settings-drawer,
+.reader-drawer-leave-to .reader-settings-drawer {
+  transform: translate3d(100%, 0, 0);
 }
 </style>
