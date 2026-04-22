@@ -123,6 +123,9 @@
           <button class="reader-tool" :class="{ active: pageListVisible }" type="button" aria-label="页面列表" @click="togglePageList">
             <PanelTop :size="24" />
           </button>
+          <button class="reader-tool" type="button" aria-label="重新加载当前页" @click="reloadCurrentPage">
+            <RefreshCw :size="23" />
+          </button>
           <button class="reader-tool" :class="{ active: readerSettingsVisible }" type="button" aria-label="阅读设置" @click="toggleReaderSettings">
             <Settings :size="24" />
           </button>
@@ -171,7 +174,7 @@ import { cloudService } from '@/services/cloudService'
 import { libraryService } from '@/services/libraryService'
 import { readerService, type ReaderFitMode, type ReaderMode } from '@/services/readerService'
 import type { ImageAsset, MangaItem } from '@/services/types'
-import { ArrowLeft, Bookmark, ChevronsLeft, ChevronsRight, PanelTop, Settings, Sun, X } from 'lucide-vue-next'
+import { ArrowLeft, Bookmark, ChevronsLeft, ChevronsRight, PanelTop, RefreshCw, Settings, Sun, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -353,6 +356,27 @@ function togglePageList() {
   brightnessVisible.value = false
   readerSettingsVisible.value = false
   controlsVisible.value = true
+  scheduleHide()
+}
+
+function reloadCurrentPage() {
+  const image = images.value[currentIndex.value]
+  if (image?.src.startsWith('blob:')) {
+    URL.revokeObjectURL(image.src)
+  }
+
+  if (image) {
+    images.value[currentIndex.value] = {
+      ...image,
+      src: '',
+    }
+  }
+
+  void ensureImagesAround(currentIndex.value)
+  controlsVisible.value = true
+  brightnessVisible.value = false
+  pageListVisible.value = false
+  readerSettingsVisible.value = false
   scheduleHide()
 }
 
@@ -740,8 +764,8 @@ function handleContinuousScroll() {
 
 .reader-actions {
   display: grid;
-  grid-template-columns: repeat(4, minmax(48px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(5, minmax(44px, 1fr));
+  gap: 10px;
   justify-items: center;
 }
 
