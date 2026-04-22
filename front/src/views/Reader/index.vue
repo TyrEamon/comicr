@@ -29,11 +29,11 @@
       <div v-if="controlsVisible" class="reader-bottom" @click.stop>
         <div class="reader-progress-row">
           <button class="reader-page-button" type="button" aria-label="上一页" @click="previousPage">
-            <ChevronLeft :size="30" />
+            <ChevronLeft :size="26" />
           </button>
 
           <div class="reader-progress">
-            <span>{{ currentIndex + 1 }}</span>
+            <span class="reader-progress-value">{{ currentIndex + 1 }}</span>
             <input
               v-model.number="currentIndex"
               type="range"
@@ -42,11 +42,11 @@
               step="1"
               aria-label="阅读进度"
             />
-            <span>{{ images.length }}</span>
+            <span class="reader-progress-value total">{{ images.length }}</span>
           </div>
 
           <button class="reader-page-button" type="button" aria-label="下一页" @click="nextPage">
-            <ChevronRight :size="30" />
+            <ChevronRight :size="26" />
           </button>
         </div>
 
@@ -292,21 +292,21 @@ function setFitMode(mode: 'contain' | 'width') {
   position: fixed;
   inset: auto 0 0 0;
   z-index: 20;
-  padding: 46px 24px calc(18px + var(--safe-bottom));
+  padding: 34px 18px calc(14px + var(--safe-bottom));
   background: linear-gradient(to top, rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0));
 }
 
 .reader-progress-row {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) 72px;
-  gap: 18px;
+  grid-template-columns: 56px minmax(0, 1fr) 56px;
+  gap: 12px;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .reader-page-button {
-  width: 72px;
-  height: 72px;
+  width: 56px;
+  height: 56px;
   color: var(--color-accent-bright);
   background: rgba(30, 30, 30, 0.86);
 }
@@ -402,16 +402,26 @@ function setFitMode(mode: 'contain' | 'width') {
 }
 
 .reader-progress {
-  display: grid;
-  grid-template-columns: 32px 1fr 32px;
+  display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: rgba(209, 197, 183, 0.62);
-  font-size: 16px;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.reader-progress-value {
+  flex: 0 0 auto;
+  min-width: 28px;
+}
+
+.reader-progress-value.total {
+  text-align: right;
 }
 
 .reader-progress input {
-  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
   accent-color: var(--color-accent);
 }
 </style>
