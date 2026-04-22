@@ -17,7 +17,7 @@
         v-model="importTitle"
         class="text-input"
         type="text"
-        placeholder="留空自动用文件夹名或文件名"
+        placeholder="单本可手动命名，多本会使用文件夹名"
         autocomplete="off"
       />
 
@@ -143,10 +143,25 @@ async function handleFolderImport() {
   importedManga.value = null
   message.value = '正在申请文件夹授权...'
   try {
-    const folder = await localFolderService.pickFolder()
-    const manga = await library.importImageBlobs(requestedTitle() || folder.title, folder.images)
-    importedManga.value = { id: manga.id, title: manga.title }
-    message.value = `已导入 ${manga.title}（${manga.imageCount} 页）`
+    const folders = await localFolderService.pickFolder((progress) => {
+      message.value = `正在读取 ${progress.current}/${progress.total}：${progress.title}`
+    })
+    const manualTitle = requestedTitle()
+    let totalImages = 0
+    let lastManga: { id: string; title: string } | null = null
+
+    for (const [index, folder] of folders.entries()) {
+      const title = folders.length === 1 ? manualTitle || folder.title : folder.title
+      message.value = `正在导入 ${index + 1}/${folders.length}：${title}`
+      const manga = await library.importImageBlobs(title, folder.images)
+      totalImages += manga.imageCount
+      lastManga = { id: manga.id, title: manga.title }
+    }
+
+    importedManga.value = folders.length === 1 ? lastManga : null
+    message.value = folders.length === 1 && lastManga
+      ? `已导入 ${lastManga.title}（${totalImages} 页）`
+      : `已导入 ${folders.length} 本漫画，共 ${totalImages} 页`
     importTitle.value = ''
   } catch (error) {
     message.value = error instanceof Error ? error.message : '文件夹导入失败'
