@@ -57,6 +57,7 @@ export interface DownloadTask {
   id: string
   url: string
   name: string
+  outputPath?: string
   status: DownloadStatus
   error?: string
   current: number

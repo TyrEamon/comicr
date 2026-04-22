@@ -58,6 +58,27 @@
     <section class="surface-card setting-card storage-card">
       <div class="setting-card-header">
         <div>
+          <h2>下载位置</h2>
+          <p>{{ downloadTargetLabel }}</p>
+        </div>
+        <span class="status-pill">{{ hasCustomDownloadTarget ? '自定义' : '默认' }}</span>
+      </div>
+
+      <div class="cache-actions">
+        <button class="ghost-button import-button" type="button" :disabled="busy || !downloadTargetAvailable" @click="pickDownloadTarget">
+          <FolderOpen :size="18" />
+          选择目录
+        </button>
+        <button class="ghost-button import-button" type="button" :disabled="busy || !hasCustomDownloadTarget" @click="resetDownloadTarget">
+          <RotateCcw :size="18" />
+          恢复默认
+        </button>
+      </div>
+    </section>
+
+    <section class="surface-card setting-card storage-card">
+      <div class="setting-card-header">
+        <div>
           <h2>缓存管理</h2>
           <p>云盘阅读缓存</p>
         </div>
@@ -110,10 +131,11 @@
 <script setup lang="ts">
 import { archiveService } from '@/services/archiveService'
 import { cloudService } from '@/services/cloudService'
+import { downloadTargetService } from '@/services/downloadTargetService'
 import { localFolderService } from '@/services/localFolderService'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { Archive, FolderOpen, HardDrive, Images, Trash2 } from 'lucide-vue-next'
-import { onMounted, ref } from 'vue'
+import { Archive, FolderOpen, HardDrive, Images, RotateCcw, Trash2 } from 'lucide-vue-next'
+import { computed, onMounted, ref } from 'vue'
 
 const library = useLibraryStore()
 const archiveInput = ref<HTMLInputElement | null>(null)
@@ -124,6 +146,16 @@ const busy = ref(false)
 const importedManga = ref<{ id: string; title: string } | null>(null)
 const cacheStats = ref({ usedBytes: 0, pageBytes: 0, coverBytes: 0, pageCount: 0, coverCount: 0 })
 const cacheLimitMb = ref(Math.round(cloudService.getCloudCacheSettings().maxBytes / 1024 / 1024))
+const downloadTargetVersion = ref(0)
+const downloadTargetAvailable = downloadTargetService.isAvailable()
+const downloadTargetLabel = computed(() => {
+  downloadTargetVersion.value
+  return downloadTargetService.getTargetLabel()
+})
+const hasCustomDownloadTarget = computed(() => {
+  downloadTargetVersion.value
+  return Boolean(downloadTargetService.getTarget())
+})
 
 onMounted(() => {
   void library.load()
@@ -246,6 +278,25 @@ async function handleFolderImport() {
 
 async function refreshCloudCacheStats() {
   cacheStats.value = await cloudService.getCloudCacheStats()
+}
+
+async function pickDownloadTarget() {
+  busy.value = true
+  try {
+    const target = await downloadTargetService.pickTarget()
+    downloadTargetVersion.value += 1
+    message.value = `下载位置已设置：${target.name}`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '设置下载位置失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+function resetDownloadTarget() {
+  downloadTargetService.clearTarget()
+  downloadTargetVersion.value += 1
+  message.value = '下载位置已恢复为 Download/Comicr'
 }
 
 async function saveCacheLimit() {

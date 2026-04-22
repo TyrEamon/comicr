@@ -33,6 +33,7 @@
               <span>{{ formatStatus(task.status) }}</span>
               <span>{{ task.current }} / {{ task.total || '-' }}</span>
             </div>
+            <p v-if="task.outputPath" class="task-output">{{ task.outputPath }}</p>
           </div>
           <button
             v-if="canCancel(task.status)"
@@ -237,6 +238,12 @@ function progressPercent(task: DownloadTask) {
   color: rgba(209, 197, 183, 0.66);
   font-size: 12px;
   text-transform: uppercase;
+}
+
+.task-copy .task-output {
+  margin-top: 8px;
+  color: rgba(225, 194, 150, 0.7);
+  font-size: 11px;
 }
 
 .cancel-button {

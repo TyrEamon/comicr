@@ -1,4 +1,5 @@
 import { libraryService } from './libraryService'
+import { downloadTargetService } from './downloadTargetService'
 import type { DownloadTask } from './types'
 
 const TASKS_KEY = 'comics-app:downloads:v1'
@@ -149,6 +150,8 @@ export const downloadService = {
       setTask(currentTask)
 
       const images: Array<{ name: string; type?: string; blob: Blob }> = []
+      const imageRefs: Array<{ name: string; type?: string; uri: string }> = []
+      let outputPath = downloadTargetService.getTargetLabel()
       for (const [index, imageUrl] of imageUrls.entries()) {
         const latest = loadTasks().find((item) => item.id === task.id)
         if (latest?.status === 'cancelled') {
@@ -157,30 +160,44 @@ export const downloadService = {
 
         try {
           const blob = await fetchBlob(imageUrl)
-          images.push({
-            name: imageNameFromUrl(imageUrl, index),
-            type: blob.type,
-            blob,
-          })
+          const name = imageNameFromUrl(imageUrl, index)
+          if (downloadTargetService.isAvailable()) {
+            const writtenImage = await downloadTargetService.writeImage(title, name, blob.type, blob)
+            outputPath = writtenImage.folderUri || outputPath
+            imageRefs.push({
+              name: writtenImage.name || name,
+              type: writtenImage.type || blob.type,
+              uri: writtenImage.uri,
+            })
+          } else {
+            images.push({
+              name,
+              type: blob.type,
+              blob,
+            })
+          }
         } catch (error) {
           console.warn(`跳过下载失败的图片: ${imageUrl}`, error)
         }
 
-        currentTask = { ...currentTask, current: index + 1, updatedAt: Date.now() }
+        currentTask = { ...currentTask, current: index + 1, outputPath, updatedAt: Date.now() }
         setTask(currentTask)
       }
 
-      if (images.length === 0) {
+      if (images.length === 0 && imageRefs.length === 0) {
         throw new Error('图片下载失败')
       }
 
-      const manga = await libraryService.importImageBlobs(title, images, 'download')
+      const manga = imageRefs.length > 0
+        ? await libraryService.importImageRefs(title, imageRefs, 'download')
+        : await libraryService.importImageBlobs(title, images, 'download')
       setTask({
         ...currentTask,
         status: 'completed',
         mangaId: manga.id,
-        current: images.length,
-        total: images.length,
+        outputPath,
+        current: imageRefs.length || images.length,
+        total: imageRefs.length || images.length,
         completedAt: Date.now(),
         updatedAt: Date.now(),
       })
