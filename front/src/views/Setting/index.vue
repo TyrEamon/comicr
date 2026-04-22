@@ -28,7 +28,7 @@
         </button>
         <button class="primary-button import-button" type="button" :disabled="busy" @click="handleFolderImport">
           <FolderOpen :size="18" />
-          文件夹
+          扫描
         </button>
         <button class="ghost-button import-button" type="button" :disabled="busy" @click="imageInput?.click()">
           <Images :size="18" />
@@ -144,7 +144,7 @@ async function handleFolderImport() {
   message.value = '正在申请文件夹授权...'
   try {
     const folders = await localFolderService.pickFolder((progress) => {
-      message.value = `正在读取 ${progress.current}/${progress.total}：${progress.title}`
+      message.value = `正在建立索引 ${progress.current}/${progress.total}：${progress.title}`
     })
     const manualTitle = requestedTitle()
     let totalImages = 0
@@ -152,16 +152,17 @@ async function handleFolderImport() {
 
     for (const [index, folder] of folders.entries()) {
       const title = folders.length === 1 ? manualTitle || folder.title : folder.title
-      message.value = `正在导入 ${index + 1}/${folders.length}：${title}`
-      const manga = await library.importImageBlobs(title, folder.images)
+      message.value = `正在保存索引 ${index + 1}/${folders.length}：${title}`
+      const manga = await library.importImageRefs(title, folder.images)
       totalImages += manga.imageCount
       lastManga = { id: manga.id, title: manga.title }
     }
 
+    await library.load()
     importedManga.value = folders.length === 1 ? lastManga : null
     message.value = folders.length === 1 && lastManga
-      ? `已导入 ${lastManga.title}（${totalImages} 页）`
-      : `已导入 ${folders.length} 本漫画，共 ${totalImages} 页`
+      ? `已添加 ${lastManga.title}（${totalImages} 页，不复制原图）`
+      : `已添加 ${folders.length} 本漫画，共 ${totalImages} 页，不复制原图`
     importTitle.value = ''
   } catch (error) {
     message.value = error instanceof Error ? error.message : '文件夹导入失败'

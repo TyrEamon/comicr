@@ -1,4 +1,4 @@
-export type MangaSource = 'archive' | 'download' | 'cloud' | 'sample'
+export type MangaSource = 'archive' | 'download' | 'cloud' | 'folder' | 'sample'
 
 export interface MangaItem {
   id: string
@@ -18,7 +18,8 @@ export interface MangaImageRecord {
   index: number
   name: string
   type: string
-  blob: Blob
+  blob?: Blob
+  uri?: string
 }
 
 export interface ImageAsset {
@@ -27,6 +28,7 @@ export interface ImageAsset {
   name: string
   type: string
   src: string
+  uri?: string
 }
 
 export interface ShelfState {

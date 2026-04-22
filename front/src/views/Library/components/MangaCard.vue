@@ -53,6 +53,8 @@ const sourceLabel = computed(() => {
       return '云盘'
     case 'download':
       return '下载'
+    case 'folder':
+      return '文件夹'
     case 'sample':
       return '示例'
     default:

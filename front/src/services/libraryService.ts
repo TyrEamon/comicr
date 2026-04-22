@@ -7,6 +7,7 @@ import {
   listMangas,
   putRecord,
 } from './db'
+import { localFolderService } from './localFolderService'
 import type { ImageAsset, MangaImageRecord, MangaItem, MangaSource, ReadingProgress, ShelfState } from './types'
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif'])
@@ -173,21 +174,76 @@ export const libraryService = {
     return manga
   },
 
+  async importImageRefs(
+    title: string,
+    images: Array<{ name: string; type?: string; uri: string }>,
+    source: MangaSource = 'folder',
+  ) {
+    if (images.length === 0) {
+      throw new Error('没有可索引的图片')
+    }
+
+    const now = Date.now()
+    const mangaId = randomId('manga')
+    const manga: MangaItem = {
+      id: mangaId,
+      title: title.trim() || '未命名漫画',
+      localPath: mangaId,
+      imageCount: images.length,
+      source,
+      addedAt: now,
+      updatedAt: now,
+    }
+
+    await putRecord('mangas', manga)
+
+    for (const [index, image] of images.entries()) {
+      const record: MangaImageRecord = {
+        id: `${mangaId}:${index}`,
+        mangaId,
+        index,
+        name: image.name,
+        type: image.type || mimeFromName(image.name),
+        uri: image.uri,
+      }
+      await putRecord('images', record)
+    }
+
+    return manga
+  },
+
   async getCoverUrl(mangaId: string) {
     const images = await getImagesByManga(mangaId)
     const cover = images[0]
-    return cover ? URL.createObjectURL(cover.blob) : ''
+    if (!cover) return ''
+    if (cover.blob) return URL.createObjectURL(cover.blob)
+    if (cover.uri && localFolderService.isAvailable()) {
+      const blob = await localFolderService.readImage(cover.uri, cover.type)
+      return URL.createObjectURL(blob)
+    }
+    return ''
   },
 
   async getImageAssets(mangaId: string): Promise<ImageAsset[]> {
     const images = await getImagesByManga(mangaId)
-    return images.map((image) => ({
-      id: image.id,
-      index: image.index,
-      name: image.name,
-      type: image.type,
-      src: URL.createObjectURL(image.blob),
-    }))
+    return Promise.all(
+      images.map(async (image) => ({
+        id: image.id,
+        index: image.index,
+        name: image.name,
+        type: image.type,
+        src: image.blob ? URL.createObjectURL(image.blob) : '',
+        uri: image.uri,
+      })),
+    )
+  },
+
+  async loadImageAssetSrc(image: ImageAsset) {
+    if (image.src) return image.src
+    if (!image.uri) return ''
+
+    const blob = await localFolderService.readImage(image.uri, image.type)
+    return URL.createObjectURL(blob)
   },
 
   async deleteManga(mangaId: string) {

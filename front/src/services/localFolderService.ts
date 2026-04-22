@@ -1,9 +1,9 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
 
-interface NativeFolderImage {
+interface NativeFolderPage {
   name: string
   type: string
-  base64: string
+  uri: string
 }
 
 interface NativeFolderManga {
@@ -11,6 +11,7 @@ interface NativeFolderManga {
   title: string
   imageCount: number
   structureType: 'single' | 'nested' | 'chapters'
+  pages: NativeFolderPage[]
 }
 
 interface NativeFolderScanResult {
@@ -18,19 +19,19 @@ interface NativeFolderScanResult {
   mangas: NativeFolderManga[]
 }
 
-interface NativeMangaImagesResult {
-  title: string
-  images: NativeFolderImage[]
+interface NativeImageReadResult {
+  type: string
+  base64: string
 }
 
 interface LocalFolderPlugin {
   pickFolder(): Promise<NativeFolderScanResult>
-  loadMangaImages(options: { id: string }): Promise<NativeMangaImagesResult>
+  readImage(options: { uri: string }): Promise<NativeImageReadResult>
 }
 
 export interface LocalFolderImport {
   title: string
-  images: Array<{ name: string; type: string; blob: Blob }>
+  images: Array<{ name: string; type: string; uri: string }>
   imageCount: number
   structureType: NativeFolderManga['structureType']
 }
@@ -75,19 +76,27 @@ export const localFolderService = {
         title: manga.title,
       })
 
-      const result = await localFolderPlugin.loadMangaImages({ id: manga.id })
       imports.push({
-        title: result.title,
+        title: manga.title,
         imageCount: manga.imageCount,
         structureType: manga.structureType,
-        images: result.images.map((image) => ({
+        images: manga.pages.map((image) => ({
           name: image.name,
           type: image.type,
-          blob: base64ToBlob(image.base64, image.type),
+          uri: image.uri,
         })),
       })
     }
 
     return imports
+  },
+
+  async readImage(uri: string, fallbackType = 'image/jpeg') {
+    if (!this.isAvailable()) {
+      throw new Error('读取授权图片需要 Android APK 环境')
+    }
+
+    const result = await localFolderPlugin.readImage({ uri })
+    return base64ToBlob(result.base64, result.type || fallbackType)
   },
 }

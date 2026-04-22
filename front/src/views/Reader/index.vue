@@ -18,7 +18,7 @@
         @touchend.passive="handleGalleryTouchEnd"
       >
         <img
-          v-if="currentImage"
+          v-if="currentImage?.src"
           class="reader-image"
           :class="{ 'fit-width': fitMode === 'width' }"
           :src="currentImage.src"
@@ -26,6 +26,7 @@
           :style="imageStyle"
           @click.stop="toggleControls"
         />
+        <div v-else class="reader-image-placeholder">正在加载当前页...</div>
       </div>
 
       <div
@@ -43,6 +44,7 @@
           :class="{ 'fit-width-frame': fitMode === 'width' }"
         >
           <img
+            v-if="image.src"
             class="reader-image continuous-image"
             :class="{ 'fit-width': fitMode === 'width' }"
             :src="image.src"
@@ -50,6 +52,7 @@
             :style="imageStyle"
             @click.stop="toggleControls"
           />
+          <div v-else class="reader-image-placeholder continuous-placeholder">正在加载第 {{ index + 1 }} 页...</div>
         </div>
       </div>
 
@@ -235,6 +238,7 @@ onMounted(async () => {
     favorite.value = libraryService.getShelfState(mangaId.value).favorite
     const progress = libraryService.getProgress(mangaId.value)
     currentIndex.value = Math.min(progress?.lastIndex ?? 0, lastImageIndex.value)
+    await ensureImagesAround(currentIndex.value)
   } catch (error) {
     loadError.value = error instanceof Error ? error.message : '阅读器加载失败'
   } finally {
@@ -257,12 +261,15 @@ onUnmounted(() => {
   }
 
   for (const image of images.value) {
-    URL.revokeObjectURL(image.src)
+    if (image.src.startsWith('blob:')) {
+      URL.revokeObjectURL(image.src)
+    }
   }
 })
 
 watch(currentIndex, (value) => {
   libraryService.saveProgress(mangaId.value, value, images.value.length)
+  void ensureImagesAround(value)
 })
 
 watch(readerMode, async (mode) => {
@@ -364,6 +371,27 @@ function goToPage(index: number) {
   }
 
   scheduleHide()
+}
+
+async function ensureImagesAround(index: number) {
+  const offsets = isContinuousMode.value
+    ? [-2, -1, 0, 1, 2, 3, 4]
+    : [-1, 0, 1]
+
+  await Promise.all(offsets.map((offset) => ensureImageLoaded(index + offset)))
+}
+
+async function ensureImageLoaded(index: number) {
+  const image = images.value[index]
+  if (!image || image.src || !image.uri) return
+
+  const src = await libraryService.loadImageAssetSrc(image)
+  if (!src) return
+
+  images.value[index] = {
+    ...image,
+    src,
+  }
 }
 
 function handleProgressInput(event: Event) {
@@ -536,6 +564,27 @@ function handleContinuousScroll() {
   width: 100%;
   height: auto;
   max-height: none;
+}
+
+.reader-image-placeholder {
+  display: grid;
+  min-width: min(72vw, 320px);
+  min-height: 220px;
+  place-items: center;
+  border: 1px solid rgba(153, 143, 131, 0.14);
+  border-radius: 12px;
+  color: rgba(229, 226, 225, 0.52);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.continuous-placeholder {
+  width: 100%;
+  min-height: 100dvh;
+  border: 0;
+  border-radius: 0;
+  background: #050505;
 }
 
 .reader-top {
