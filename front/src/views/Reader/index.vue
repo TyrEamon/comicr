@@ -13,7 +13,7 @@
       <div
         v-if="readerMode === 'gallery'"
         class="reader-stage gallery-stage"
-        @click.stop="toggleControls"
+        @click.stop="handleGalleryTap"
         @touchstart.passive="handleGalleryTouchStart"
         @touchend.passive="handleGalleryTouchEnd"
       >
@@ -24,9 +24,9 @@
           :src="currentImage.src"
           :alt="currentImage.name"
           :style="imageStyle"
-          @click.stop="toggleControls"
+          @click.stop="handleGalleryTap"
         />
-        <div v-else class="reader-image-placeholder">正在加载当前页...</div>
+        <div v-else class="reader-image-placeholder" @click.stop="handleGalleryTap">正在加载当前页...</div>
       </div>
 
       <div
@@ -71,8 +71,8 @@
 
       <div v-if="controlsVisible" class="reader-bottom" @click.stop>
         <div class="reader-progress-row">
-          <button class="reader-page-button" type="button" aria-label="上一页" @click="previousPage">
-            <ChevronLeft :size="26" />
+          <button class="reader-page-button" type="button" aria-label="回到开头" @click="jumpToStart">
+            <ChevronsLeft :size="24" />
           </button>
 
           <div class="reader-progress">
@@ -89,8 +89,8 @@
             <span class="reader-progress-value total">{{ images.length }}</span>
           </div>
 
-          <button class="reader-page-button" type="button" aria-label="下一页" @click="nextPage">
-            <ChevronRight :size="26" />
+          <button class="reader-page-button" type="button" aria-label="跳到末尾" @click="jumpToEnd">
+            <ChevronsRight :size="24" />
           </button>
         </div>
 
@@ -171,7 +171,7 @@ import { cloudService } from '@/services/cloudService'
 import { libraryService } from '@/services/libraryService'
 import { readerService, type ReaderFitMode, type ReaderMode } from '@/services/readerService'
 import type { ImageAsset, MangaItem } from '@/services/types'
-import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, PanelTop, Settings, Sun, X } from 'lucide-vue-next'
+import { ArrowLeft, Bookmark, ChevronsLeft, ChevronsRight, PanelTop, Settings, Sun, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -323,6 +323,14 @@ function nextPage() {
   goToPage(currentIndex.value + 1)
 }
 
+function jumpToStart() {
+  goToPage(0)
+}
+
+function jumpToEnd() {
+  goToPage(lastImageIndex.value)
+}
+
 function toggleFavorite() {
   favorite.value = !favorite.value
   libraryService.setShelfState(mangaId.value, { favorite: favorite.value })
@@ -416,6 +424,26 @@ async function ensureImageLoaded(index: number) {
 function handleProgressInput(event: Event) {
   const nextIndex = Number((event.target as HTMLInputElement).value)
   goToPage(nextIndex)
+}
+
+function handleGalleryTap(event: MouseEvent) {
+  if (ignoreNextTap.value) {
+    ignoreNextTap.value = false
+    return
+  }
+
+  const width = window.innerWidth || (event.currentTarget as HTMLElement).clientWidth
+  if (event.clientX < width * 0.35) {
+    previousPage()
+    return
+  }
+
+  if (event.clientX > width * 0.65) {
+    nextPage()
+    return
+  }
+
+  toggleControls()
 }
 
 function setReaderMode(mode: ReaderMode) {
@@ -535,6 +563,7 @@ function handleContinuousScroll() {
 
 .reader-stage {
   width: 100%;
+  height: 100dvh;
   min-height: 100dvh;
 }
 
@@ -545,10 +574,13 @@ function handleContinuousScroll() {
 }
 
 .continuous-stage {
+  height: 100dvh;
   overflow-y: auto;
   overscroll-behavior-y: contain;
   padding: 0 0 var(--safe-bottom);
   scrollbar-width: none;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .continuous-stage::-webkit-scrollbar {
