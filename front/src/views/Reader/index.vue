@@ -1,5 +1,5 @@
 <template>
-  <div class="reader-view" :class="{ 'continuous-mode': isContinuousMode }" @click="toggleControls">
+  <div class="reader-view" :class="{ 'continuous-mode': isContinuousMode }" @click="toggleControls()">
     <div v-if="loading" class="reader-loading">正在加载页面...</div>
     <div v-else-if="loadError" class="reader-loading">
       <div class="reader-error">
@@ -36,7 +36,7 @@
         v-else
         ref="continuousContainer"
         class="reader-stage continuous-stage"
-        @click.stop="toggleControls"
+        @click.stop="toggleControls()"
         @scroll.passive="handleContinuousScroll"
       >
         <div
@@ -53,7 +53,7 @@
             :src="image.src"
             :alt="image.name"
             :style="imageStyle"
-            @click.stop="toggleControls"
+            @click.stop="toggleControls()"
           />
           <div v-else class="reader-image-placeholder continuous-placeholder">正在加载第 {{ index + 1 }} 页...</div>
         </div>
@@ -323,8 +323,8 @@ watch(fitMode, async (mode) => {
   }
 })
 
-function toggleControls() {
-  if (handleDoubleTap()) return
+function toggleControls(skipDoubleTap = false) {
+  if (!skipDoubleTap && handleDoubleTap()) return
 
   if (ignoreNextTap.value) {
     ignoreNextTap.value = false
@@ -533,7 +533,7 @@ function handleGalleryTap(event: MouseEvent) {
     return
   }
 
-  toggleControls()
+  toggleControls(true)
 }
 
 function handleDoubleTap() {
