@@ -38,7 +38,7 @@
 
 ### D-002：APK 打包交给 GitHub Actions
 
-本机不安装 Android 打包软件。仓库中保留 Capacitor Android 工程，GitHub Actions 使用 Linux runner + Java + Gradle 构建 debug APK，并上传 artifact。
+本机不安装 Android 打包软件。仓库中保留 Capacitor Android 工程，GitHub Actions 使用 Linux runner + Temurin JDK 21 + Gradle 构建 debug APK，并上传 artifact。
 
 ### D-003：MVP 不直接运行 Go/Wails
 
@@ -486,13 +486,13 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
       - name: Install dependencies
         working-directory: front
