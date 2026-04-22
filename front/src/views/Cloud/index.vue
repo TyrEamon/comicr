@@ -109,7 +109,7 @@
         <div v-if="loadingFolders && webDavFolders.length === 0" class="empty-state compact">正在读取 WebDAV 目录...</div>
 
         <div v-else-if="webDavFolders.length === 0" class="empty-state compact">
-          当前目录下还没有漫画文件夹，或者 WebDAV 路径不对。
+          {{ emptyWebDavText }}
         </div>
 
         <div v-else class="remote-list">
@@ -152,7 +152,7 @@ import { cloudDownloadService } from '@/services/cloudDownloadService'
 import type { CloudFile, ProviderSummary, WebDavConfig } from '@/services/types'
 import { useLibraryStore } from '@/stores/libraryStore'
 import { BookOpen, Check, Cloud as CloudIcon, CloudOff, Download, FolderOpen } from 'lucide-vue-next'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -162,12 +162,18 @@ const providers = ref<ProviderSummary[]>([])
 const selectedProvider = ref(cloudService.webDavProviderId)
 const webDavConnected = ref(false)
 const loadingFolders = ref(false)
+const webDavLoadFailed = ref(false)
 const busy = ref(false)
 const message = ref('')
 const webDavFolders = ref<CloudFile[]>([])
 const previewMap = reactive<Record<string, { imageCount: number; coverUrl: string }>>({})
 const downloadedMap = reactive<Record<string, boolean>>({})
 const webDavForm = reactive<WebDavConfig>(cloudService.getWebDavConfig())
+const emptyWebDavText = computed(() => (
+  webDavLoadFailed.value
+    ? 'WebDAV 暂时读取失败，可以稍后点刷新列表。'
+    : '当前目录下还没有漫画文件夹，或者 WebDAV 路径不对。'
+))
 
 onMounted(async () => {
   await library.load()
@@ -209,6 +215,7 @@ async function disconnectWebDav() {
   cloudService.disconnectWebDav()
   Object.keys(previewMap).forEach((key) => delete previewMap[key])
   webDavFolders.value = []
+  webDavLoadFailed.value = false
   message.value = 'WebDAV 已断开'
   await refreshProviders()
   await library.load()
@@ -216,6 +223,7 @@ async function disconnectWebDav() {
 
 async function refreshWebDavLibrary() {
   loadingFolders.value = true
+  webDavLoadFailed.value = false
   message.value = webDavConnected.value ? '正在读取远程漫画目录...' : message.value
   try {
     const items = await cloudService.refreshWebDavMangaIndex()
@@ -227,6 +235,7 @@ async function refreshWebDavLibrary() {
     await library.load()
     message.value = webDavFolders.value.length > 0 ? '远程漫画目录已刷新' : 'WebDAV 已连接，但当前目录还没有漫画文件夹'
   } catch (error) {
+    webDavLoadFailed.value = true
     message.value = error instanceof Error ? error.message : '读取 WebDAV 目录失败'
   } finally {
     loadingFolders.value = false

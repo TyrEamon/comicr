@@ -22,6 +22,8 @@ const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bm
 const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
 const coverObjectUrls = new Map<string, string>()
 const pageObjectUrls = new Map<string, string>()
+const WEBDAV_RETRY_DELAYS_MS = [450, 1200, 2400]
+const WEBDAV_RETRY_STATUSES = new Set([429, 500, 502, 503, 504])
 
 interface WebDavEntry {
   name: string
@@ -273,6 +275,63 @@ function isAndroidNative() {
   return Capacitor.getPlatform() === 'android'
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms)
+  })
+}
+
+function isRetriableWebDavStatus(status: number) {
+  return WEBDAV_RETRY_STATUSES.has(status)
+}
+
+function errorMessageOf(error: unknown) {
+  return error instanceof Error ? error.message : '网络请求失败'
+}
+
+function formatWebDavStatusError(status: number, action: string) {
+  if (status === 401) return `${action}失败（401）：用户名或密码不对`
+  if (status === 403) return `${action}失败（403）：账号没有访问这个目录的权限`
+  if (status === 404) return `${action}失败（404）：WebDAV 地址或漫画目录不存在`
+  if (status === 429) return `${action}失败（429）：云盘正在限流，稍后刷新通常会恢复`
+  if (status === 502 || status === 503 || status === 504) {
+    return `${action}失败（${status}）：OpenList 或上游云盘暂时不可用，稍后刷新通常会恢复`
+  }
+  return `${action}失败（${status}）`
+}
+
+async function requestWithWebDavRetry<T extends { status: number }>(
+  request: () => Promise<T>,
+  action: string,
+  isOk: (status: number) => boolean = (status) => status >= 200 && status < 300,
+) {
+  let lastError: unknown = null
+  const maxAttempts = WEBDAV_RETRY_DELAYS_MS.length + 1
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let result: T | null = null
+
+    try {
+      result = await request()
+    } catch (error) {
+      lastError = error
+      if (attempt === maxAttempts) break
+      await wait(WEBDAV_RETRY_DELAYS_MS[attempt - 1])
+      continue
+    }
+
+    if (isOk(result.status)) return result
+
+    if (!isRetriableWebDavStatus(result.status) || attempt === maxAttempts) {
+      throw new Error(formatWebDavStatusError(result.status, action))
+    }
+
+    await wait(WEBDAV_RETRY_DELAYS_MS[attempt - 1])
+  }
+
+  throw new Error(`${action}失败：${errorMessageOf(lastError)}`)
+}
+
 function getRootUrl(config: WebDavConfig) {
   const rootUrl = new URL(config.endpointUrl)
   const libraryPath = normalizeRelativePath(config.libraryPath)
@@ -357,37 +416,40 @@ async function propfind(relativePath = '', depth = 1) {
   }
 
   const authorization = encodeBasicAuth(config.username, config.password)
-  let status = 0
-  let xml = ''
+  const result = await requestWithWebDavRetry(
+    async () => {
+      if (isAndroidNative()) {
+        const nativeResult = await nativeWebDav.propfind({
+          url: buildResourceUrl(config, relativePath, true).toString(),
+          authorization,
+          depth: String(depth),
+          body: WEBDAV_PROPFIND_BODY,
+        })
+        return {
+          status: nativeResult.status,
+          xml: nativeResult.data,
+        }
+      }
 
-  if (isAndroidNative()) {
-    const result = await nativeWebDav.propfind({
-      url: buildResourceUrl(config, relativePath, true).toString(),
-      authorization,
-      depth: String(depth),
-      body: WEBDAV_PROPFIND_BODY,
-    })
-    status = result.status
-    xml = result.data
-  } else {
-    const response = await fetch(buildResourceUrl(config, relativePath, true), {
-      method: 'PROPFIND',
-      headers: {
-        Authorization: authorization,
-        Depth: String(depth),
-        'Content-Type': 'application/xml; charset=utf-8',
-      },
-      body: WEBDAV_PROPFIND_BODY,
-    })
-    status = response.status
-    xml = await response.text()
-  }
+      const response = await fetch(buildResourceUrl(config, relativePath, true), {
+        method: 'PROPFIND',
+        headers: {
+          Authorization: authorization,
+          Depth: String(depth),
+          'Content-Type': 'application/xml; charset=utf-8',
+        },
+        body: WEBDAV_PROPFIND_BODY,
+      })
+      return {
+        status: response.status,
+        xml: await response.text(),
+      }
+    },
+    'WebDAV 请求',
+    (status) => status === 207 || (status >= 200 && status < 300),
+  )
 
-  if (status !== 207 && (status < 200 || status >= 300)) {
-    throw new Error(`WebDAV 请求失败（${status}）`)
-  }
-
-  return parsePropfindResponse(xml, config, relativePath)
+  return parsePropfindResponse(result.xml, config, relativePath)
 }
 
 async function fetchBlobByPath(relativePath: string, isDir = false) {
@@ -399,29 +461,34 @@ async function fetchBlobByPath(relativePath: string, isDir = false) {
   const authorization = encodeBasicAuth(config.username, config.password)
 
   if (isAndroidNative()) {
-    const result = await nativeWebDav.getFile({
-      url: buildResourceUrl(config, relativePath, isDir).toString(),
-      authorization,
-    })
-
-    if (result.status < 200 || result.status >= 300) {
-      throw new Error(`下载远程文件失败（${result.status}）`)
-    }
+    const result = await requestWithWebDavRetry(
+      () => nativeWebDav.getFile({
+        url: buildResourceUrl(config, relativePath, isDir).toString(),
+        authorization,
+      }),
+      '下载远程文件',
+    )
 
     return base64ToBlob(result.base64, result.mimeType)
   }
 
-  const response = await fetch(buildResourceUrl(config, relativePath, isDir), {
-    headers: {
-      Authorization: authorization,
+  const result = await requestWithWebDavRetry(
+    async () => {
+      const response = await fetch(buildResourceUrl(config, relativePath, isDir), {
+        headers: {
+          Authorization: authorization,
+        },
+      })
+
+      return {
+        status: response.status,
+        blob: response.ok ? await response.blob() : new Blob(),
+      }
     },
-  })
+    '下载远程文件',
+  )
 
-  if (!response.ok) {
-    throw new Error(`下载远程文件失败（${response.status}）`)
-  }
-
-  return response.blob()
+  return result.blob
 }
 
 async function getCachedCoverUrl(path: string) {
@@ -674,7 +741,17 @@ export const cloudService = {
     const folders = await this.listFiles(WEBDAV_PROVIDER_ID, path)
     return Promise.all(
       folders.map(async (folder) => {
-        const preview = await this.getWebDavMangaPreview(folder.path)
+        let preview = {
+          imageCount: 0,
+          coverUrl: await getCachedCoverUrl(folder.path),
+        }
+
+        try {
+          preview = await this.getWebDavMangaPreview(folder.path)
+        } catch {
+          // 某个封面或页数读取失败时，仍然先把文件夹显示出来。
+        }
+
         return {
           id: folder.path || '/',
           title: folder.name,
