@@ -11,32 +11,45 @@
         class="library-tab"
         :class="{ active: activeTab === tab.id }"
         type="button"
-        @click="activeTab = tab.id"
+        @click="setActiveTab(tab.id)"
       >
         {{ tab.label }}
       </button>
     </nav>
 
-    <div v-if="library.loading" class="empty-state">正在加载书库...</div>
+    <div
+      class="library-swipe-area"
+      @touchstart.passive="handleTouchStart"
+      @touchend.passive="handleTouchEnd"
+      @pointerdown="handlePointerStart"
+      @pointerup="handlePointerEnd"
+      @pointercancel="handlePointerCancel"
+    >
+      <Transition :name="contentTransitionName" mode="out-in">
+        <div :key="activeTab" class="library-tab-panel">
+          <div v-if="library.loading" class="empty-state">正在加载书库...</div>
 
-    <MangaGrid
-      v-else-if="visibleMangas.length > 0"
-      :mangas="visibleMangas"
-      :cover-urls="library.coverUrls"
-      :get-shelf-state="library.getShelfState"
-      @favorite="library.toggleFavorite"
-      @read-later="library.toggleReadLater"
-      @pin="library.togglePinned"
-    />
+          <MangaGrid
+            v-else-if="visibleMangas.length > 0"
+            :mangas="visibleMangas"
+            :cover-urls="library.coverUrls"
+            :get-shelf-state="library.getShelfState"
+            @favorite="library.toggleFavorite"
+            @read-later="library.toggleReadLater"
+            @pin="library.togglePinned"
+          />
 
-    <section v-else class="empty-state surface-card">
-      <BookOpen :size="34" />
-      <h2>还没有漫画</h2>
-      <p>到设置里的漫画库导入第一本漫画。</p>
-      <div class="empty-actions">
-        <RouterLink class="primary-button" to="/setting">去设置</RouterLink>
-      </div>
-    </section>
+          <section v-else class="empty-state surface-card">
+            <BookOpen :size="34" />
+            <h2>还没有漫画</h2>
+            <p>到设置里的漫画库导入第一本漫画。</p>
+            <div class="empty-actions">
+              <RouterLink class="primary-button" to="/setting">去设置</RouterLink>
+            </div>
+          </section>
+        </div>
+      </Transition>
+    </div>
   </div>
 </template>
 
@@ -51,6 +64,12 @@ type LibraryTab = 'all' | 'favorite' | 'readLater' | 'cloud'
 const library = useLibraryStore()
 const searchQuery = ref('')
 const activeTab = ref<LibraryTab>('all')
+const contentTransitionName = ref('library-slide-next')
+const touchStartX = ref(0)
+const touchStartY = ref(0)
+const pointerStartX = ref(0)
+const pointerStartY = ref(0)
+const pointerTracking = ref(false)
 const tabItems: Array<{ id: LibraryTab, label: string }> = [
   { id: 'all', label: '全部' },
   { id: 'favorite', label: '收藏' },
@@ -91,6 +110,55 @@ const visibleMangas = computed(() => {
 
 function handleAppSearch(event: Event) {
   searchQuery.value = String((event as CustomEvent<string>).detail ?? '')
+}
+
+function setActiveTab(tab: LibraryTab) {
+  const currentIndex = tabItems.findIndex((item) => item.id === activeTab.value)
+  const nextIndex = tabItems.findIndex((item) => item.id === tab)
+  contentTransitionName.value = nextIndex >= currentIndex ? 'library-slide-next' : 'library-slide-prev'
+  activeTab.value = tab
+}
+
+function switchTabByOffset(offset: number) {
+  const currentIndex = tabItems.findIndex((item) => item.id === activeTab.value)
+  const nextIndex = Math.min(tabItems.length - 1, Math.max(0, currentIndex + offset))
+  if (nextIndex === currentIndex) return
+  setActiveTab(tabItems[nextIndex].id)
+}
+
+function handleSwipe(deltaX: number, deltaY: number) {
+  if (Math.abs(deltaX) < 58 || Math.abs(deltaX) < Math.abs(deltaY) * 1.35) return
+  switchTabByOffset(deltaX < 0 ? 1 : -1)
+}
+
+function handleTouchStart(event: TouchEvent) {
+  const touch = event.changedTouches[0]
+  if (!touch) return
+  touchStartX.value = touch.clientX
+  touchStartY.value = touch.clientY
+}
+
+function handleTouchEnd(event: TouchEvent) {
+  const touch = event.changedTouches[0]
+  if (!touch) return
+  handleSwipe(touch.clientX - touchStartX.value, touch.clientY - touchStartY.value)
+}
+
+function handlePointerStart(event: PointerEvent) {
+  if (event.pointerType === 'touch') return
+  pointerTracking.value = true
+  pointerStartX.value = event.clientX
+  pointerStartY.value = event.clientY
+}
+
+function handlePointerEnd(event: PointerEvent) {
+  if (!pointerTracking.value || event.pointerType === 'touch') return
+  pointerTracking.value = false
+  handleSwipe(event.clientX - pointerStartX.value, event.clientY - pointerStartY.value)
+}
+
+function handlePointerCancel() {
+  pointerTracking.value = false
 }
 </script>
 
@@ -146,6 +214,35 @@ function handleAppSearch(event: Event) {
 .library-tab.active::after {
   opacity: 1;
   transform: scaleX(1);
+}
+
+.library-swipe-area {
+  min-height: 300px;
+  touch-action: pan-y;
+}
+
+.library-tab-panel {
+  min-height: 300px;
+}
+
+.library-slide-next-enter-active,
+.library-slide-next-leave-active,
+.library-slide-prev-enter-active,
+.library-slide-prev-leave-active {
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: opacity, transform;
+}
+
+.library-slide-next-enter-from,
+.library-slide-prev-leave-to {
+  opacity: 0;
+  transform: translate3d(18px, 0, 0);
+}
+
+.library-slide-next-leave-to,
+.library-slide-prev-enter-from {
+  opacity: 0;
+  transform: translate3d(-18px, 0, 0);
 }
 
 .empty-state {
