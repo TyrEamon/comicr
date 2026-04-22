@@ -144,7 +144,7 @@ Comics-app/
 - 阅读器页：沉浸阅读、进度保存。
 - 下载页：粘贴链接下载漫画/本子。
 - 设置页：漫画库管理、阅读偏好、存储管理、构建信息。
-- 云盘页 MVP：保留 provider 外壳，后续接 WebDAV。
+- 云盘页 MVP：接入 OpenList / NAS 等兼容 WebDAV 的目录型漫画库。
 - GitHub Actions 自动构建 APK，并上传 artifact。
 
 ### 暂不实现
@@ -366,17 +366,29 @@ Comics-app/
 
 任务：
 
-- 显示总容量、provider 列表、连接状态。
-- 点击 provider 进入文件列表。
+- 显示 provider 列表、连接状态、本地书库数量。
+- 点击 WebDAV provider 后进入连接配置和远程漫画文件夹列表。
 - 第一阶段 provider：
   - 本地导入：提示去设置页管理漫画库。
-  - WebDAV：可作为第二步。
+  - WebDAV：支持 OpenList / NAS / 其他兼容 WebDAV 的漫画目录。
+- WebDAV 目录约定：
+  - `漫画目录/漫画名/001.jpg`
+  - 每个漫画文件夹名作为漫画标题。
+  - 文件夹内图片按数字自然排序。
+  - 第一张图片作为封面，拉取后缓存到本地 IndexedDB。
+- 每个远程漫画提供两个动作：
+  - `阅读`：进入阅读器在线阅读。
+  - `下载`：整本下载并导入本地书库，来源标记为 `cloud`。
 
 验收：
 
-- 能浏览 provider 文件。
+- 能配置并连接 WebDAV。
+- 能浏览 WebDAV 根目录下的漫画文件夹。
+- 能显示远程漫画封面和页数。
+- 能从 WebDAV 漫画进入阅读器。
+- 能把 WebDAV 漫画下载到本地书库。
 - 本地导入 provider 不再重复放导入控件。
-- WebDAV 未连接时有明确状态。
+- WebDAV 未连接、连接失败、目录为空时有明确状态。
 
 ### FE-9 设置页
 
@@ -476,7 +488,7 @@ MVP 可以先支持一个或两个稳定站点，不要求一次覆盖 PC 端全
 
 - provider 列表。
 - 文件浏览。
-- WebDAV 接入后负责远程资源浏览和导入。
+- WebDAV 远程资源浏览、封面缓存、在线阅读资源加载、下载导入。
 
 Provider 接口：
 
@@ -486,6 +498,8 @@ interface CloudProvider {
   connect(): Promise<void>
   disconnect(): Promise<void>
   list(path: string): Promise<CloudFile[]>
+  preview(remotePath: string): Promise<{ imageCount: number; coverUrl: string }>
+  read(remotePath: string): Promise<ImageAsset[]>
   importToLibrary(remotePath: string): Promise<ImportResult>
 }
 ```
@@ -581,7 +595,7 @@ jobs:
 5. 实现详情页和阅读器。
 6. 实现下载页和最小下载 service。
 7. 实现设置页的漫画库管理和本地导入。
-8. 保留 cloudService/provider 外壳，后续接 WebDAV。
+8. 接入 cloudService/provider 的 WebDAV 浏览、封面、阅读、下载。
 9. 再补发现页/在线源。
 
 ## 继续讨论清单
@@ -590,7 +604,7 @@ jobs:
 
 1. Android 目录体验：MVP 使用 SAF 原生插件授权单个文件夹；后续做“记住多个分散目录并重扫”。
 2. 下载来源优先级：第一版要支持哪些站点或链接格式，是否只先支持 PC 项目里最稳定的 1-2 个。
-3. 云盘 MVP：第一版保留外壳，后续直接加 WebDAV。
+3. 云盘 MVP：第一版接 WebDAV；Google Drive / OneDrive 原生 OAuth 后置。
 4. 在线源：发现页是 MVP 必须有，还是先把本地书库、下载、设置页本地导入跑通后再做。
 5. 漫画文件格式：第一版已支持 ZIP/CBZ、图片组、SAF 文件夹；后续是否增加 RAR/7z。
 6. 数据持久化：第一版用 Preferences + JSON，还是直接引入 SQLite。

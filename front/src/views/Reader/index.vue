@@ -1,6 +1,13 @@
 <template>
   <div class="reader-view" :class="{ 'continuous-mode': isContinuousMode }" @click="toggleControls">
     <div v-if="loading" class="reader-loading">正在加载页面...</div>
+    <div v-else-if="loadError" class="reader-loading">
+      <div class="reader-error">
+        <strong>加载失败</strong>
+        <p>{{ loadError }}</p>
+        <button class="ghost-button" type="button" @click.stop="router.back()">返回</button>
+      </div>
+    </div>
 
     <template v-else>
       <div
@@ -51,7 +58,7 @@
           <ArrowLeft :size="24" />
         </button>
         <div>
-          <span>书库</span>
+          <span>{{ isCloudReader ? '云盘' : '书库' }}</span>
           <strong>{{ manga?.title || '阅读器' }}</strong>
         </div>
         <button class="reader-icon" type="button" aria-label="收藏" @click="toggleFavorite">
@@ -157,6 +164,7 @@
 </template>
 
 <script setup lang="ts">
+import { cloudService } from '@/services/cloudService'
 import { libraryService } from '@/services/libraryService'
 import { readerService, type ReaderFitMode, type ReaderMode } from '@/services/readerService'
 import type { ImageAsset, MangaItem } from '@/services/types'
@@ -183,6 +191,7 @@ const readerMode = ref<ReaderMode>(preferences.mode)
 const fitMode = ref<ReaderFitMode>(preferences.fitMode)
 const continuousContainer = ref<HTMLElement | null>(null)
 const continuousFrames = ref<HTMLElement[]>([])
+const loadError = ref('')
 const touchStartX = ref(0)
 const touchStartY = ref(0)
 const ignoreNextTap = ref(false)
@@ -191,6 +200,7 @@ let hideTimer: number | undefined
 let scrollSyncFrame: number | undefined
 
 const mangaId = computed(() => String(route.params.id))
+const isCloudReader = computed(() => cloudService.isWebDavReaderId(mangaId.value))
 const currentImage = computed(() => images.value[currentIndex.value] ?? null)
 const isContinuousMode = computed(() => readerMode.value === 'continuous')
 const lastImageIndex = computed(() => Math.max(0, images.value.length - 1))
@@ -198,13 +208,40 @@ const imageStyle = computed(() => ({ filter: `brightness(${brightness.value}%)` 
 
 onMounted(async () => {
   loading.value = true
+  loadError.value = ''
   continuousFrames.value = []
-  manga.value = await libraryService.getManga(mangaId.value) ?? null
-  images.value = await libraryService.getImageAssets(mangaId.value)
-  favorite.value = libraryService.getShelfState(mangaId.value).favorite
-  const progress = libraryService.getProgress(mangaId.value)
-  currentIndex.value = Math.min(progress?.lastIndex ?? 0, lastImageIndex.value)
-  loading.value = false
+  try {
+    if (isCloudReader.value) {
+      const remoteManga = await cloudService.getWebDavReaderAssets(mangaId.value)
+      manga.value = {
+        id: remoteManga.id,
+        title: remoteManga.title,
+        localPath: remoteManga.id,
+        imageCount: remoteManga.imageCount,
+        source: 'cloud',
+        addedAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+      images.value = remoteManga.images
+    } else {
+      manga.value = await libraryService.getManga(mangaId.value) ?? null
+      images.value = await libraryService.getImageAssets(mangaId.value)
+    }
+
+    if (!manga.value || images.value.length === 0) {
+      throw new Error('没有找到可阅读的图片')
+    }
+
+    favorite.value = libraryService.getShelfState(mangaId.value).favorite
+    const progress = libraryService.getProgress(mangaId.value)
+    currentIndex.value = Math.min(progress?.lastIndex ?? 0, lastImageIndex.value)
+  } catch (error) {
+    loadError.value = error instanceof Error ? error.message : '阅读器加载失败'
+  } finally {
+    loading.value = false
+  }
+
+  if (loadError.value) return
 
   if (isContinuousMode.value) {
     await scrollToCurrentIndex('auto')
@@ -427,6 +464,26 @@ function handleContinuousScroll() {
   min-height: 100dvh;
   place-items: center;
   color: rgba(229, 226, 225, 0.7);
+}
+
+.reader-error {
+  display: grid;
+  width: min(82vw, 320px);
+  gap: 14px;
+  justify-items: center;
+  text-align: center;
+}
+
+.reader-error strong {
+  color: var(--color-text);
+  font-size: 22px;
+  font-weight: 400;
+}
+
+.reader-error p {
+  margin: 0;
+  color: rgba(229, 226, 225, 0.62);
+  line-height: 1.7;
 }
 
 .reader-stage {

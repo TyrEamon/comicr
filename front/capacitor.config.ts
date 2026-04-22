@@ -5,6 +5,11 @@ const config: CapacitorConfig = {
   appName: '漫画云读',
   webDir: 'dist',
   bundledWebRuntime: false,
+  plugins: {
+    CapacitorHttp: {
+      enabled: true,
+    },
+  },
   android: {
     backgroundColor: '#0f0f0f',
   },

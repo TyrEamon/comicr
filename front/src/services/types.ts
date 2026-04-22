@@ -85,3 +85,19 @@ export interface ImportResult {
   fileCount: number
 }
 
+export interface WebDavConfig {
+  endpointUrl: string
+  username: string
+  password: string
+  libraryPath: string
+}
+
+export interface CloudMangaItem {
+  id: string
+  title: string
+  path: string
+  updatedAt: string
+  sizeBytes: number
+  imageCount: number
+  coverUrl: string
+}

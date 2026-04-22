@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { libraryService } from '@/services/libraryService'
-import type { MangaItem } from '@/services/types'
+import type { MangaItem, MangaSource } from '@/services/types'
 
 export const useLibraryStore = defineStore('library', () => {
   const mangas = ref<MangaItem[]>([])
@@ -40,8 +40,12 @@ export const useLibraryStore = defineStore('library', () => {
     return manga
   }
 
-  async function importImageBlobs(title: string, images: Array<{ name: string; type?: string; blob: Blob }>) {
-    const manga = await libraryService.importImageBlobs(title, images, 'archive')
+  async function importImageBlobs(
+    title: string,
+    images: Array<{ name: string; type?: string; blob: Blob }>,
+    source: MangaSource = 'archive',
+  ) {
+    const manga = await libraryService.importImageBlobs(title, images, source)
     await load()
     return manga
   }

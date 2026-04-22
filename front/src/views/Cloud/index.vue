@@ -1,75 +1,276 @@
 <template>
   <div class="page cloud-page">
     <section class="storage-overview">
-      <p class="label-caps">云盘同步</p>
+      <p class="label-caps">云盘</p>
       <div class="storage-row">
         <div>
-          <h1 class="page-title">总存储</h1>
+          <h1 class="page-title">WebDAV 漫画库</h1>
         </div>
         <strong>{{ library.count }} 本</strong>
-      </div>
-      <div class="storage-bar">
-        <div style="width: 24%" />
       </div>
     </section>
 
     <section class="provider-list">
-      <article v-for="provider in providers" :key="provider.id" class="provider-card surface-card" :class="{ dim: !provider.connected }">
+      <article
+        v-for="provider in providers"
+        :key="provider.id"
+        class="provider-card surface-card"
+        :class="{ active: selectedProvider === provider.id, dim: !provider.connected }"
+      >
         <div class="provider-icon">
           <CloudIcon v-if="provider.connected" :size="28" />
           <CloudOff v-else :size="28" />
         </div>
-        <div>
+        <div class="provider-copy">
           <h2>{{ provider.name }}</h2>
           <p>{{ provider.connected ? '已连接' : '未连接' }}</p>
           <small>{{ provider.description }}</small>
         </div>
-        <button
-          class="ghost-button setup-button"
-          type="button"
-          :disabled="!provider.connected"
-          @click="selectProvider(provider.id)"
-        >
-          打开
+        <button class="ghost-button setup-button" type="button" @click="selectProvider(provider.id)">
+          {{ selectedProvider === provider.id ? '当前' : '打开' }}
         </button>
       </article>
     </section>
 
-    <section v-if="selectedProvider === 'local-archive'" class="local-import surface-card">
+    <section v-if="selectedProvider === cloudService.localProviderId" class="local-import surface-card">
       <div>
         <p class="label-caps">本地导入</p>
         <h2>漫画库管理</h2>
-        <p>本地漫画导入已经放到设置页，云盘页后续专注 WebDAV 和远程资源。</p>
+        <p>本地 ZIP、文件夹和图片导入已经放到设置页，云盘页现在专注远程 WebDAV 资源。</p>
       </div>
       <RouterLink class="primary-button local-import-link" to="/setting">去设置</RouterLink>
     </section>
+
+    <template v-else>
+      <section class="surface-card webdav-config-card">
+        <div class="card-head">
+          <div>
+            <p class="label-caps">WebDAV</p>
+            <h2>连接配置</h2>
+          </div>
+          <button v-if="webDavConnected" class="ghost-button danger-button" type="button" :disabled="busy" @click="disconnectWebDav">
+            断开
+          </button>
+        </div>
+
+        <label class="input-label" for="endpoint-url">地址</label>
+        <input
+          id="endpoint-url"
+          v-model="webDavForm.endpointUrl"
+          class="text-input"
+          type="url"
+          placeholder="https://example.com/dav/"
+          autocomplete="off"
+        />
+
+        <div class="field-grid">
+          <div>
+            <label class="input-label" for="username">用户名</label>
+            <input id="username" v-model="webDavForm.username" class="text-input" type="text" autocomplete="username" />
+          </div>
+          <div>
+            <label class="input-label" for="password">密码</label>
+            <input id="password" v-model="webDavForm.password" class="text-input" type="password" autocomplete="current-password" />
+          </div>
+        </div>
+
+        <label class="input-label" for="library-path">漫画目录</label>
+        <input
+          id="library-path"
+          v-model="webDavForm.libraryPath"
+          class="text-input"
+          type="text"
+          placeholder="/本子 或留空使用 WebDAV 根目录"
+          autocomplete="off"
+        />
+
+        <div class="config-actions">
+          <button class="primary-button" type="button" :disabled="busy" @click="connectWebDav">
+            {{ webDavConnected ? '更新连接' : '连接 WebDAV' }}
+          </button>
+          <button class="ghost-button" type="button" :disabled="busy || !webDavConnected" @click="refreshWebDavLibrary">
+            刷新列表
+          </button>
+        </div>
+
+        <p class="config-hint">OpenList 通常直接填它给你的 WebDAV 地址；漫画目录留空或填你存放漫画文件夹的相对路径。</p>
+        <p v-if="message" class="status-message">{{ message }}</p>
+      </section>
+
+      <section v-if="webDavConnected" class="surface-card webdav-library-card">
+        <div class="card-head">
+          <div>
+            <p class="label-caps">远程书架</p>
+            <h2>漫画文件夹</h2>
+          </div>
+          <span class="status-pill">{{ webDavFolders.length }} 项</span>
+        </div>
+
+        <div v-if="loadingFolders" class="empty-state compact">正在读取 WebDAV 目录...</div>
+
+        <div v-else-if="webDavFolders.length === 0" class="empty-state compact">
+          当前目录下还没有漫画文件夹，或者 WebDAV 路径不对。
+        </div>
+
+        <div v-else class="remote-list">
+          <article v-for="folder in webDavFolders" :key="folder.path" class="remote-item">
+            <div class="remote-cover">
+              <img v-if="previewMap[folder.path]?.coverUrl" :src="previewMap[folder.path]?.coverUrl" :alt="folder.name" loading="lazy" />
+              <FolderOpen v-else :size="26" />
+            </div>
+
+            <div class="remote-copy">
+              <h3>{{ folder.name }}</h3>
+              <p>
+                {{ previewMap[folder.path]?.imageCount ?? '--' }} 页
+                <span>·</span>
+                {{ formatUpdatedAt(folder.updatedAt) }}
+              </p>
+            </div>
+
+            <div class="remote-actions">
+              <button class="ghost-button action-button" type="button" :disabled="busy" @click="openWebDavReader(folder.path)">
+                <BookOpen :size="16" />
+                阅读
+              </button>
+              <button class="primary-button action-button" type="button" :disabled="busy" @click="downloadWebDavManga(folder.path)">
+                <Download :size="16" />
+                下载
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { cloudService } from '@/services/cloudService'
-import type { ProviderSummary } from '@/services/types'
+import type { CloudFile, ProviderSummary, WebDavConfig } from '@/services/types'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { Cloud as CloudIcon, CloudOff } from 'lucide-vue-next'
-import { onMounted, ref } from 'vue'
+import { BookOpen, Cloud as CloudIcon, CloudOff, Download, FolderOpen } from 'lucide-vue-next'
+import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
-const providers = ref<ProviderSummary[]>([])
-const selectedProvider = ref('local-archive')
+const router = useRouter()
 const library = useLibraryStore()
 
+const providers = ref<ProviderSummary[]>([])
+const selectedProvider = ref(cloudService.webDavProviderId)
+const webDavConnected = ref(false)
+const loadingFolders = ref(false)
+const busy = ref(false)
+const message = ref('')
+const webDavFolders = ref<CloudFile[]>([])
+const previewMap = reactive<Record<string, { imageCount: number; coverUrl: string }>>({})
+const webDavForm = reactive<WebDavConfig>(cloudService.getWebDavConfig())
+
 onMounted(async () => {
-  providers.value = await cloudService.listProviders()
   await library.load()
+  await refreshProviders()
+  if (webDavConnected.value) {
+    await refreshWebDavLibrary()
+  }
 })
+
+async function refreshProviders() {
+  providers.value = await cloudService.listProviders()
+  webDavConnected.value = providers.value.some((provider) => provider.id === cloudService.webDavProviderId && provider.connected)
+  if (!webDavConnected.value) {
+    webDavFolders.value = []
+  }
+}
 
 function selectProvider(providerId: string) {
   selectedProvider.value = providerId
+}
+
+async function connectWebDav() {
+  busy.value = true
+  message.value = '正在测试 WebDAV 连接...'
+  try {
+    await cloudService.connectWebDav({ ...webDavForm })
+    message.value = 'WebDAV 已连接'
+    await refreshProviders()
+    await refreshWebDavLibrary()
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : 'WebDAV 连接失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function disconnectWebDav() {
+  cloudService.disconnectWebDav()
+  Object.keys(previewMap).forEach((key) => delete previewMap[key])
+  webDavFolders.value = []
+  message.value = 'WebDAV 已断开'
+  await refreshProviders()
+}
+
+async function refreshWebDavLibrary() {
+  loadingFolders.value = true
+  message.value = webDavConnected.value ? '正在读取远程漫画目录...' : message.value
+  try {
+    webDavFolders.value = await cloudService.listFiles(cloudService.webDavProviderId)
+    Object.keys(previewMap).forEach((key) => delete previewMap[key])
+    await warmPreviews(webDavFolders.value.slice(0, 12))
+    void warmPreviews(webDavFolders.value.slice(12))
+    message.value = webDavFolders.value.length > 0 ? '远程漫画目录已刷新' : 'WebDAV 已连接，但当前目录还没有漫画文件夹'
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '读取 WebDAV 目录失败'
+  } finally {
+    loadingFolders.value = false
+  }
+}
+
+async function warmPreviews(folders: CloudFile[]) {
+  for (const folder of folders) {
+    try {
+      previewMap[folder.path] = await cloudService.getWebDavMangaPreview(folder.path)
+    } catch {
+      previewMap[folder.path] = { imageCount: 0, coverUrl: '' }
+    }
+  }
+}
+
+async function openWebDavReader(path: string) {
+  busy.value = true
+  message.value = '正在准备在线阅读...'
+  try {
+    const readerId = cloudService.buildWebDavReaderId(path)
+    router.push({ name: 'reader', params: { id: readerId } })
+  } finally {
+    busy.value = false
+  }
+}
+
+async function downloadWebDavManga(path: string) {
+  busy.value = true
+  message.value = '正在下载到本地书库...'
+  try {
+    const remoteManga = await cloudService.downloadWebDavManga(path)
+    const manga = await library.importImageBlobs(remoteManga.title, remoteManga.images, 'cloud')
+    message.value = `已下载 ${manga.title}（${manga.imageCount} 页）`
+    await refreshProviders()
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '下载失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+function formatUpdatedAt(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '--'
+  return date.toLocaleDateString()
 }
 </script>
 
 <style scoped>
 .storage-overview {
-  margin-bottom: 42px;
+  margin-bottom: 28px;
 }
 
 .storage-row {
@@ -87,23 +288,9 @@ function selectProvider(providerId: string) {
   white-space: nowrap;
 }
 
-.storage-bar {
-  height: 8px;
-  margin-top: 22px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--color-surface-high);
-}
-
-.storage-bar div {
-  height: 100%;
-  border-radius: inherit;
-  background: var(--color-accent);
-}
-
 .provider-list {
   display: grid;
-  gap: 16px;
+  gap: 14px;
 }
 
 .provider-card {
@@ -114,8 +301,12 @@ function selectProvider(providerId: string) {
   padding: 20px;
 }
 
+.provider-card.active {
+  border-color: rgba(225, 194, 150, 0.24);
+}
+
 .provider-card.dim {
-  opacity: 0.58;
+  opacity: 0.68;
 }
 
 .provider-icon {
@@ -128,13 +319,13 @@ function selectProvider(providerId: string) {
   background: var(--color-surface-high);
 }
 
-.provider-card h2 {
+.provider-copy h2 {
   margin: 0;
   font-size: 20px;
   font-weight: 400;
 }
 
-.provider-card p {
+.provider-copy p {
   margin: 6px 0;
   color: #34d399;
   font-size: 12px;
@@ -143,10 +334,10 @@ function selectProvider(providerId: string) {
   text-transform: uppercase;
 }
 
-.provider-card small {
+.provider-copy small {
   display: block;
   color: rgba(209, 197, 183, 0.55);
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .setup-button {
@@ -154,15 +345,19 @@ function selectProvider(providerId: string) {
   padding-inline: 14px;
 }
 
-.local-import {
+.local-import,
+.webdav-config-card,
+.webdav-library-card {
   display: grid;
   gap: 18px;
-  margin-top: 34px;
+  margin-top: 26px;
   padding: 22px;
 }
 
-.local-import h2 {
-  margin: 8px 0;
+.local-import h2,
+.webdav-config-card h2,
+.webdav-library-card h2 {
+  margin: 8px 0 0;
   font-size: 24px;
   font-weight: 400;
 }
@@ -175,5 +370,134 @@ function selectProvider(providerId: string) {
 
 .local-import-link {
   text-decoration: none;
+}
+
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.input-label {
+  color: rgba(209, 197, 183, 0.72);
+  font-size: 13px;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.config-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.config-hint,
+.status-message {
+  margin: 0;
+  color: rgba(209, 197, 183, 0.64);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.status-message {
+  color: var(--color-accent-bright);
+}
+
+.danger-button {
+  color: #fca5a5;
+}
+
+.status-pill {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 12px;
+  color: var(--color-accent-bright);
+  background: rgba(184, 155, 114, 0.12);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.empty-state.compact {
+  min-height: 160px;
+  display: grid;
+  place-items: center;
+  color: rgba(209, 197, 183, 0.66);
+  text-align: center;
+}
+
+.remote-list {
+  display: grid;
+  gap: 14px;
+}
+
+.remote-item {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid rgba(153, 143, 131, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.remote-cover {
+  display: grid;
+  width: 72px;
+  aspect-ratio: 3 / 4;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 14px;
+  color: rgba(209, 197, 183, 0.42);
+  background: var(--color-surface-high);
+}
+
+.remote-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.remote-copy {
+  min-width: 0;
+}
+
+.remote-copy h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.remote-copy p {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 0 0;
+  color: rgba(209, 197, 183, 0.58);
+  font-size: 12px;
+}
+
+.remote-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.action-button {
+  min-height: 44px;
+  justify-content: center;
+  gap: 8px;
 }
 </style>

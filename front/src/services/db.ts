@@ -1,9 +1,9 @@
 import type { MangaImageRecord, MangaItem } from './types'
 
 const DB_NAME = 'comics-app-db'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
-type StoreName = 'mangas' | 'images'
+type StoreName = 'mangas' | 'images' | 'cloudCache'
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -25,6 +25,10 @@ export function openAppDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('images')) {
         const imageStore = db.createObjectStore('images', { keyPath: 'id' })
         imageStore.createIndex('mangaId', 'mangaId', { unique: false })
+      }
+
+      if (!db.objectStoreNames.contains('cloudCache')) {
+        db.createObjectStore('cloudCache', { keyPath: 'id' })
       }
     }
 
@@ -101,4 +105,3 @@ export async function listMangas(): Promise<MangaItem[]> {
   const mangas = await getAllRecords<MangaItem>('mangas')
   return mangas.sort((left, right) => right.updatedAt - left.updatedAt)
 }
-
