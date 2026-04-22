@@ -21,28 +21,7 @@
 
     <section class="toolbar surface-card">
       <input ref="searchInput" v-model="searchQuery" class="text-input" type="search" placeholder="搜索漫画标题" aria-label="搜索漫画标题" />
-
-      <div class="import-actions">
-        <button class="ghost-button import-button" type="button" @click="archiveInput?.click()">
-          <Archive :size="18" />
-          压缩包
-        </button>
-        <button class="primary-button import-button" type="button" @click="folderInput?.click()">
-          <FolderOpen :size="18" />
-          文件夹
-        </button>
-        <button class="ghost-button import-button" type="button" @click="imageInput?.click()">
-          <Images :size="18" />
-          图片
-        </button>
-      </div>
-
-      <input ref="archiveInput" class="hidden-input" type="file" accept=".zip,.cbz,application/zip" @change="handleArchiveImport" />
-      <input ref="folderInput" class="hidden-input" type="file" accept="image/*" multiple webkitdirectory directory @change="handleImageFilesImport($event, '文件夹')" />
-      <input ref="imageInput" class="hidden-input" type="file" accept="image/*" multiple @change="handleImageFilesImport($event, '图片')" />
     </section>
-
-    <div v-if="message" class="message">{{ message }}</div>
 
     <div v-if="library.loading" class="empty-state">正在加载书库...</div>
 
@@ -59,10 +38,9 @@
     <section v-else class="empty-state surface-card">
       <BookOpen :size="34" />
       <h2>还没有漫画</h2>
-      <p>导入 ZIP、CBZ、已解压文件夹，或者直接选择一组图片，就能创建第一本漫画。</p>
+      <p>到设置里的漫画库导入第一本漫画。</p>
       <div class="empty-actions">
-        <button class="primary-button" type="button" @click="folderInput?.click()">导入文件夹</button>
-        <button class="ghost-button" type="button" @click="archiveInput?.click()">导入压缩包</button>
+        <RouterLink class="primary-button" to="/setting">去设置</RouterLink>
       </div>
     </section>
   </div>
@@ -70,7 +48,7 @@
 
 <script setup lang="ts">
 import { useLibraryStore } from '@/stores/libraryStore'
-import { Archive, BookOpen, FolderOpen, Images } from 'lucide-vue-next'
+import { BookOpen } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import MangaGrid from './components/MangaGrid.vue'
@@ -79,13 +57,9 @@ type LibraryTab = 'all' | 'favorite' | 'readLater' | 'download'
 
 const route = useRoute()
 const library = useLibraryStore()
-const archiveInput = ref<HTMLInputElement | null>(null)
-const folderInput = ref<HTMLInputElement | null>(null)
-const imageInput = ref<HTMLInputElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const searchQuery = ref('')
 const activeTab = ref<LibraryTab>('all')
-const message = ref('')
 const tabItems: Array<{ id: LibraryTab, label: string }> = [
   { id: 'all', label: '全部' },
   { id: 'favorite', label: '收藏' },
@@ -137,38 +111,6 @@ function focusSearchInput() {
   void nextTick(() => {
     searchInput.value?.focus()
   })
-}
-
-async function handleArchiveImport(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-
-  message.value = '正在导入压缩包...'
-  try {
-    const manga = await library.importArchive(file)
-    message.value = `已导入 ${manga.title}（${manga.imageCount} 页）`
-  } catch (error) {
-    message.value = error instanceof Error ? error.message : '导入失败'
-  } finally {
-    input.value = ''
-  }
-}
-
-async function handleImageFilesImport(event: Event, label: string) {
-  const input = event.target as HTMLInputElement
-  const files = Array.from(input.files ?? [])
-  if (files.length === 0) return
-
-  message.value = `正在导入${label}...`
-  try {
-    const manga = await library.importImageFiles(files)
-    message.value = `已导入 ${manga.title}（${manga.imageCount} 页）`
-  } catch (error) {
-    message.value = error instanceof Error ? error.message : `${label}导入失败`
-  } finally {
-    input.value = ''
-  }
 }
 </script>
 
@@ -234,27 +176,6 @@ async function handleImageFilesImport(event: Event, label: string) {
   padding: 16px;
 }
 
-.import-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.import-button {
-  min-width: 0;
-  padding-inline: 10px;
-}
-
-.hidden-input {
-  display: none;
-}
-
-.message {
-  margin: 0 0 18px;
-  color: var(--color-accent);
-  font-size: 13px;
-}
-
 .empty-state {
   display: grid;
   min-height: 260px;
@@ -282,5 +203,9 @@ async function handleImageFilesImport(event: Event, label: string) {
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
+}
+
+.empty-actions a {
+  text-decoration: none;
 }
 </style>

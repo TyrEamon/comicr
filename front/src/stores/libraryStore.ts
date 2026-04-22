@@ -28,14 +28,14 @@ export const useLibraryStore = defineStore('library', () => {
     }
   }
 
-  async function importArchive(file: File) {
-    const manga = await libraryService.importArchive(file)
+  async function importArchive(file: File, title?: string) {
+    const manga = await libraryService.importArchive(file, 'archive', title)
     await load()
     return manga
   }
 
-  async function importImageFiles(files: File[]) {
-    const manga = await libraryService.importImageFiles(files)
+  async function importImageFiles(files: File[], title?: string) {
+    const manga = await libraryService.importImageFiles(files, 'archive', title)
     await load()
     return manga
   }

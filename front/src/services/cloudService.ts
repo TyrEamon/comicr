@@ -1,5 +1,4 @@
-import { libraryService } from './libraryService'
-import type { CloudFile, ImportResult, ProviderSummary } from './types'
+import type { CloudFile, ProviderSummary } from './types'
 
 const LOCAL_PROVIDER: ProviderSummary = {
   id: 'local-archive',
@@ -8,7 +7,7 @@ const LOCAL_PROVIDER: ProviderSummary = {
   connected: true,
   usedBytes: 0,
   totalBytes: 0,
-  description: '使用本地 ZIP、CBZ、文件夹或图片，先打通云盘导入的同一条链路。',
+  description: '本地漫画导入放在设置页；云盘页后续接 WebDAV。',
 }
 
 const WEBDAV_PROVIDER: ProviderSummary = {
@@ -34,7 +33,7 @@ export const cloudService = {
     return [
       {
         id: 'local-import',
-        name: '导入 ZIP / CBZ / 文件夹',
+        name: '设置里的漫画导入',
         path: 'local-import',
         isDir: false,
         sizeBytes: 0,
@@ -43,21 +42,4 @@ export const cloudService = {
     ]
   },
 
-  async importArchive(file: File): Promise<ImportResult> {
-    const manga = await libraryService.importArchive(file, 'cloud')
-    return {
-      mangaId: manga.id,
-      title: manga.title,
-      fileCount: manga.imageCount,
-    }
-  },
-
-  async importImageFiles(files: File[]): Promise<ImportResult> {
-    const manga = await libraryService.importImageFiles(files, 'cloud')
-    return {
-      mangaId: manga.id,
-      title: manga.title,
-      fileCount: manga.imageCount,
-    }
-  },
 }

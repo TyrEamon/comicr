@@ -42,6 +42,10 @@ function cleanArchiveTitle(name: string) {
   return name.replace(/\.(zip|cbz)$/i, '').trim() || '未命名漫画'
 }
 
+function cleanManualTitle(title?: string) {
+  return title?.trim() || ''
+}
+
 function isImageFile(file: PickedImageFile) {
   return file.type.startsWith('image/') || IMAGE_EXTENSIONS.has(extensionOf(file.name))
 }
@@ -50,7 +54,10 @@ function fileSortPath(file: PickedImageFile) {
   return file.webkitRelativePath || file.name
 }
 
-function cleanFolderTitle(files: PickedImageFile[]) {
+function cleanFolderTitle(files: PickedImageFile[], title?: string) {
+  const manualTitle = cleanManualTitle(title)
+  if (manualTitle) return manualTitle
+
   const firstRelativePath = files.find((file) => file.webkitRelativePath)?.webkitRelativePath
   if (firstRelativePath) {
     const folderName = firstRelativePath.split('/').filter(Boolean)[0]
@@ -90,7 +97,7 @@ export const libraryService = {
     return getRecord<MangaItem>('mangas', id)
   },
 
-  async importArchive(file: File, source: MangaSource = 'archive') {
+  async importArchive(file: File, source: MangaSource = 'archive', title?: string) {
     const zip = await JSZip.loadAsync(file)
     const entries = Object.values(zip.files)
       .filter((entry) => !entry.dir && IMAGE_EXTENSIONS.has(extensionOf(entry.name)))
@@ -106,10 +113,10 @@ export const libraryService = {
       blob: await entry.async('blob'),
     })))
 
-    return this.importImageBlobs(cleanArchiveTitle(file.name), blobs, source)
+    return this.importImageBlobs(cleanManualTitle(title) || cleanArchiveTitle(file.name), blobs, source)
   },
 
-  async importImageFiles(files: File[], source: MangaSource = 'archive') {
+  async importImageFiles(files: File[], source: MangaSource = 'archive', title?: string) {
     const imageFiles = files
       .map((file) => file as PickedImageFile)
       .filter(isImageFile)
@@ -125,7 +132,7 @@ export const libraryService = {
       blob: file,
     }))
 
-    return this.importImageBlobs(cleanFolderTitle(imageFiles), blobs, source)
+    return this.importImageBlobs(cleanFolderTitle(imageFiles, title), blobs, source)
   },
 
   async importImageBlobs(

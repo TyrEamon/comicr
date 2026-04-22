@@ -9,7 +9,7 @@
     <section class="surface-card placeholder">
       <Compass :size="34" />
       <h2>在线源适配稍后接入</h2>
-      <p>第一阶段先确认导入、阅读、下载和云盘导入在 Android 上跑通。</p>
+      <p>第一阶段先确认设置页本地导入、阅读和下载在 Android 上跑通。</p>
     </section>
   </div>
 </template>
