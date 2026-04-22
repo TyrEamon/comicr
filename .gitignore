@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+*.tsbuildinfo
+front/node_modules/
+front/dist/
+front/android/
+front/.vite/

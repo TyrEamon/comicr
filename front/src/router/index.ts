@@ -1,0 +1,24 @@
+import { createRouter, createWebHistory } from 'vue-router'
+import Cloud from '@/views/Cloud/index.vue'
+import Download from '@/views/Download/index.vue'
+import Library from '@/views/Library/index.vue'
+import MangaDetail from '@/views/MangaDetail/index.vue'
+import Online from '@/views/Online/index.vue'
+import Reader from '@/views/Reader/index.vue'
+import Setting from '@/views/Setting/index.vue'
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    { path: '/', name: 'library', component: Library, meta: { title: 'Library' } },
+    { path: '/online', name: 'online', component: Online, meta: { title: 'Explore' } },
+    { path: '/download', name: 'download', component: Download, meta: { title: 'Downloads' } },
+    { path: '/cloud', name: 'cloud', component: Cloud, meta: { title: 'Cloud Sync' } },
+    { path: '/setting', name: 'setting', component: Setting, meta: { title: 'Settings' } },
+    { path: '/manga/:id', name: 'manga-detail', component: MangaDetail, meta: { title: 'Details', hideBottomNav: true } },
+    { path: '/reader/:id', name: 'reader', component: Reader, meta: { title: 'Reader', fullscreen: true } },
+  ],
+})
+
+export default router
+
