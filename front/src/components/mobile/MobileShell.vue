@@ -78,7 +78,7 @@ async function handleSearch() {
   inset: 0 auto 0 0;
   z-index: 70;
   width: min(82vw, 320px);
-  padding: calc(22px + env(safe-area-inset-top, 0px)) 18px 22px;
+  padding: calc(22px + var(--safe-top)) 18px 22px;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(16, 16, 16, 0.98);
   box-shadow: 24px 0 60px rgba(0, 0, 0, 0.42);
