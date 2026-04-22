@@ -523,17 +523,23 @@ function handleGalleryTap(event: MouseEvent) {
   }
 
   const width = window.innerWidth || (event.currentTarget as HTMLElement).clientWidth
-  if (event.clientX < width * 0.35) {
+  const height = window.innerHeight || (event.currentTarget as HTMLElement).clientHeight
+  const isMiddleTap = event.clientX >= width * 0.32 && event.clientX <= width * 0.68
+  const isLowerMiddleTap = event.clientX >= width * 0.24 && event.clientX <= width * 0.76 && event.clientY >= height * 0.48
+
+  if (isMiddleTap || isLowerMiddleTap) {
+    toggleControls(true)
+    return
+  }
+
+  if (event.clientX < width * 0.24) {
     previousPage()
     return
   }
 
-  if (event.clientX > width * 0.65) {
+  if (event.clientX > width * 0.76) {
     nextPage()
-    return
   }
-
-  toggleControls(true)
 }
 
 function handleDoubleTap() {
