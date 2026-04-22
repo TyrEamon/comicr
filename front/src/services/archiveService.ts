@@ -14,6 +14,11 @@ interface NativeArchivePickResult {
   pages: NativeArchivePage[]
 }
 
+interface NativeArchivePickManyResult {
+  archives: NativeArchivePickResult[]
+  errors?: Array<{ title?: string; message: string }>
+}
+
 interface NativeArchiveReadResult {
   type: string
   base64: string
@@ -21,6 +26,7 @@ interface NativeArchiveReadResult {
 
 interface NativeArchivePlugin {
   pickArchive(): Promise<NativeArchivePickResult>
+  pickArchives(): Promise<NativeArchivePickManyResult>
   readEntry(options: { uri: string; entryName: string }): Promise<NativeArchiveReadResult>
 }
 
@@ -42,6 +48,10 @@ export const archiveService = {
 
   async pickArchive() {
     return archivePlugin.pickArchive()
+  },
+
+  async pickArchives() {
+    return archivePlugin.pickArchives()
   },
 
   async readEntry(archiveUri: string, entryName: string, fallbackType = 'image/jpeg') {

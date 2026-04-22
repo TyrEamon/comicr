@@ -85,9 +85,9 @@ export const useLibraryStore = defineStore('library', () => {
     }
   }
 
-  async function importArchive(file: File, title?: string) {
+  async function importArchive(file: File, title?: string, refreshAfter = true) {
     const manga = await libraryService.importArchive(file, 'archive', title)
-    await refresh()
+    if (refreshAfter) await refresh()
     return manga
   }
 
@@ -118,9 +118,10 @@ export const useLibraryStore = defineStore('library', () => {
   async function importArchiveRefs(
     title: string,
     images: Array<{ name: string; type?: string; archiveUri: string; entryName: string }>,
+    refreshAfter = true,
   ) {
     const manga = await libraryService.importArchiveRefs(title, images)
-    await refresh()
+    if (refreshAfter) await refresh()
     return manga
   }
 

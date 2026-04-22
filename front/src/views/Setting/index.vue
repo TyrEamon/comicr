@@ -17,7 +17,7 @@
         v-model="importTitle"
         class="text-input"
         type="text"
-        placeholder="单本可手动命名，多本会使用文件夹名"
+        placeholder="单本可手动命名，多本会使用文件名"
         autocomplete="off"
       />
 
@@ -36,7 +36,7 @@
         </button>
       </div>
 
-      <input ref="archiveInput" class="hidden-input" type="file" accept=".zip,.cbz,application/zip" @change="handleArchiveImport" />
+      <input ref="archiveInput" class="hidden-input" type="file" accept=".zip,.cbz,application/zip" multiple @change="handleArchiveImport" />
       <input ref="imageInput" class="hidden-input" type="file" accept="image/*" multiple @change="handleImageFilesImport($event, '图片')" />
 
       <div v-if="message" class="import-message">
@@ -179,20 +179,37 @@ async function handleNativeArchiveImport() {
   importedManga.value = null
   message.value = '正在申请压缩包授权...'
   try {
-    const archive = await archiveService.pickArchive()
-    const title = requestedTitle() || archive.title
-    message.value = `正在保存压缩包索引：${title}`
-    const manga = await library.importArchiveRefs(
-      title,
-      archive.pages.map((page) => ({
-        name: page.name,
-        type: page.type,
-        archiveUri: page.archiveUri,
-        entryName: page.entryName,
-      })),
-    )
-    importedManga.value = { id: manga.id, title: manga.title }
-    message.value = `已添加 ${manga.title}（${manga.imageCount} 页，不解压不复制）`
+    const result = await archiveService.pickArchives()
+    const archives = result.archives
+    if (archives.length === 0) throw new Error('没有可导入的压缩包')
+
+    const manualTitle = requestedTitle()
+    let totalImages = 0
+    let lastManga: { id: string; title: string } | null = null
+
+    for (const [index, archive] of archives.entries()) {
+      const title = archives.length === 1 ? manualTitle || archive.title : archive.title
+      message.value = `正在保存压缩包索引 ${index + 1}/${archives.length}：${title}`
+      const manga = await library.importArchiveRefs(
+        title,
+        archive.pages.map((page) => ({
+          name: page.name,
+          type: page.type,
+          archiveUri: page.archiveUri,
+          entryName: page.entryName,
+        })),
+        false,
+      )
+      totalImages += manga.imageCount
+      lastManga = { id: manga.id, title: manga.title }
+    }
+
+    await library.refresh()
+    importedManga.value = archives.length === 1 ? lastManga : null
+    const skipped = result.errors?.length ? `，跳过 ${result.errors.length} 个无效压缩包` : ''
+    message.value = archives.length === 1 && lastManga
+      ? `已添加 ${lastManga.title}（${totalImages} 页，不解压不复制）${skipped}`
+      : `已添加 ${archives.length} 本压缩包漫画，共 ${totalImages} 页，不解压不复制${skipped}`
     importTitle.value = ''
   } catch (error) {
     message.value = error instanceof Error ? error.message : '压缩包索引失败'
@@ -203,16 +220,30 @@ async function handleNativeArchiveImport() {
 
 async function handleArchiveImport(event: Event) {
   const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
+  const files = Array.from(input.files ?? [])
+  if (files.length === 0) return
 
   busy.value = true
   importedManga.value = null
   message.value = '正在导入压缩包...'
   try {
-    const manga = await library.importArchive(file, requestedTitle())
-    importedManga.value = { id: manga.id, title: manga.title }
-    message.value = `已导入 ${manga.title}（${manga.imageCount} 页）`
+    const manualTitle = requestedTitle()
+    let totalImages = 0
+    let lastManga: { id: string; title: string } | null = null
+
+    for (const [index, file] of files.entries()) {
+      const title = files.length === 1 ? manualTitle : undefined
+      message.value = `正在导入压缩包 ${index + 1}/${files.length}：${file.name}`
+      const manga = await library.importArchive(file, title, false)
+      totalImages += manga.imageCount
+      lastManga = { id: manga.id, title: manga.title }
+    }
+
+    await library.refresh()
+    importedManga.value = files.length === 1 ? lastManga : null
+    message.value = files.length === 1 && lastManga
+      ? `已导入 ${lastManga.title}（${totalImages} 页）`
+      : `已导入 ${files.length} 个压缩包，共 ${totalImages} 页`
     importTitle.value = ''
   } catch (error) {
     message.value = error instanceof Error ? error.message : '导入失败'

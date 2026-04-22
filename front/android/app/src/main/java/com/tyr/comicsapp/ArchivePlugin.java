@@ -1,6 +1,7 @@
 package com.tyr.comicsapp;
 
 import android.app.Activity;
+import android.content.ClipData;
 import android.content.Intent;
 import android.net.Uri;
 import android.provider.OpenableColumns;
@@ -34,9 +35,19 @@ public class ArchivePlugin extends Plugin {
 
     @PluginMethod
     public void pickArchive(PluginCall call) {
+        openArchivePicker(call, false, "pickArchiveResult");
+    }
+
+    @PluginMethod
+    public void pickArchives(PluginCall call) {
+        openArchivePicker(call, true, "pickArchivesResult");
+    }
+
+    private void openArchivePicker(PluginCall call, boolean allowMultiple, String callbackName) {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, allowMultiple);
         intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
             "application/zip",
             "application/x-zip-compressed",
@@ -45,7 +56,7 @@ public class ArchivePlugin extends Plugin {
         });
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        startActivityForResult(call, intent, "pickArchiveResult");
+        startActivityForResult(call, intent, callbackName);
     }
 
     @PluginMethod
@@ -76,50 +87,127 @@ public class ArchivePlugin extends Plugin {
             return;
         }
 
-        Uri archiveUri = result.getData().getData();
-        if (archiveUri == null) {
+        List<Uri> archiveUris = selectedArchiveUris(result.getData());
+        if (archiveUris.isEmpty()) {
             call.reject("无法读取压缩包授权");
             return;
         }
 
-        int flags = result.getData().getFlags()
-            & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        if ((flags & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) {
-            getContext().getContentResolver().takePersistableUriPermission(
-                archiveUri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            );
-        }
+        Uri archiveUri = archiveUris.get(0);
+        persistReadPermission(archiveUri, result.getData().getFlags());
 
         archiveExecutor.execute(() -> {
             try {
-                List<ArchivePage> pages = scanArchive(archiveUri);
-                if (pages.isEmpty()) {
-                    rejectOnMain(call, "压缩包里没有可阅读的图片");
-                    return;
-                }
-
-                JSArray pageItems = new JSArray();
-                for (ArchivePage page : pages) {
-                    JSObject item = new JSObject();
-                    item.put("name", page.displayName);
-                    item.put("type", page.type);
-                    item.put("archiveUri", archiveUri.toString());
-                    item.put("entryName", page.entryName);
-                    pageItems.put(item);
-                }
-
-                String fileName = queryDisplayName(archiveUri, "压缩包漫画");
-                JSObject response = new JSObject();
-                response.put("title", cleanArchiveTitle(fileName));
-                response.put("archiveUri", archiveUri.toString());
-                response.put("imageCount", pages.size());
-                response.put("pages", pageItems);
-                resolveOnMain(call, response);
+                resolveOnMain(call, buildArchiveResponse(archiveUri));
             } catch (Exception error) {
                 rejectOnMain(call, error.getMessage() == null ? "扫描压缩包失败" : error.getMessage());
             }
         });
+    }
+
+    @ActivityCallback
+    private void pickArchivesResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+            call.reject("未选择压缩包");
+            return;
+        }
+
+        Intent data = result.getData();
+        List<Uri> archiveUris = selectedArchiveUris(data);
+        if (archiveUris.isEmpty()) {
+            call.reject("无法读取压缩包授权");
+            return;
+        }
+
+        int flags = data.getFlags();
+        for (Uri archiveUri : archiveUris) {
+            persistReadPermission(archiveUri, flags);
+        }
+
+        archiveExecutor.execute(() -> {
+            JSArray archiveItems = new JSArray();
+            JSArray errorItems = new JSArray();
+
+            for (Uri archiveUri : archiveUris) {
+                try {
+                    archiveItems.put(buildArchiveResponse(archiveUri));
+                } catch (Exception error) {
+                    JSObject item = new JSObject();
+                    item.put("title", cleanArchiveTitle(queryDisplayName(archiveUri, "压缩包漫画")));
+                    item.put("message", error.getMessage() == null ? "扫描压缩包失败" : error.getMessage());
+                    errorItems.put(item);
+                }
+            }
+
+            if (archiveItems.length() == 0) {
+                rejectOnMain(call, "选择的压缩包里没有可阅读的图片");
+                return;
+            }
+
+            JSObject response = new JSObject();
+            response.put("archives", archiveItems);
+            response.put("errors", errorItems);
+            resolveOnMain(call, response);
+        });
+    }
+
+    private JSObject buildArchiveResponse(Uri archiveUri) throws Exception {
+        List<ArchivePage> pages = scanArchive(archiveUri);
+        if (pages.isEmpty()) {
+            throw new Exception("压缩包里没有可阅读的图片");
+        }
+
+        JSArray pageItems = new JSArray();
+        for (ArchivePage page : pages) {
+            JSObject item = new JSObject();
+            item.put("name", page.displayName);
+            item.put("type", page.type);
+            item.put("archiveUri", archiveUri.toString());
+            item.put("entryName", page.entryName);
+            pageItems.put(item);
+        }
+
+        String fileName = queryDisplayName(archiveUri, "压缩包漫画");
+        JSObject response = new JSObject();
+        response.put("title", cleanArchiveTitle(fileName));
+        response.put("archiveUri", archiveUri.toString());
+        response.put("imageCount", pages.size());
+        response.put("pages", pageItems);
+        return response;
+    }
+
+    private List<Uri> selectedArchiveUris(Intent data) {
+        List<Uri> uris = new ArrayList<>();
+        ClipData clipData = data.getClipData();
+        if (clipData != null) {
+            for (int index = 0; index < clipData.getItemCount(); index++) {
+                Uri uri = clipData.getItemAt(index).getUri();
+                if (uri != null) uris.add(uri);
+            }
+        }
+
+        Uri dataUri = data.getData();
+        if (dataUri != null && !uris.contains(dataUri)) {
+            uris.add(dataUri);
+        }
+
+        return uris;
+    }
+
+    private void persistReadPermission(Uri uri, int rawFlags) {
+        int flags = rawFlags
+            & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if ((flags & Intent.FLAG_GRANT_READ_URI_PERMISSION) == 0) return;
+
+        try {
+            getContext().getContentResolver().takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            );
+        } catch (SecurityException | IllegalArgumentException ignored) {
+            // Some file pickers grant temporary access only. Reading now can still work.
+        }
     }
 
     private List<ArchivePage> scanArchive(Uri archiveUri) throws Exception {
