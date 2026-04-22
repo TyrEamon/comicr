@@ -18,7 +18,11 @@ export const useLibraryStore = defineStore('library', () => {
       const nextCoverUrls: Record<string, string> = {}
       await Promise.all(
         mangas.value.map(async (manga) => {
-          nextCoverUrls[manga.id] = await libraryService.getCoverUrl(manga.id)
+          try {
+            nextCoverUrls[manga.id] = await libraryService.getCoverUrl(manga.id)
+          } catch {
+            nextCoverUrls[manga.id] = ''
+          }
         }),
       )
       coverUrls.value = nextCoverUrls

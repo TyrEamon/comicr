@@ -1,14 +1,27 @@
-import { getRecord, putRecord } from './db'
-import type { CloudFile, CloudMangaItem, ImageAsset, ProviderSummary, WebDavConfig } from './types'
+import { deleteRecord, getAllRecords, getRecord, putRecord } from './db'
+import type {
+  CloudCacheSettings,
+  CloudCacheStats,
+  CloudFile,
+  CloudMangaItem,
+  ImageAsset,
+  MangaItem,
+  ProviderSummary,
+  WebDavConfig,
+} from './types'
 import { Capacitor, registerPlugin } from '@capacitor/core'
 
 const WEBDAV_CONFIG_KEY = 'comics-app:webdav-config:v1'
 const WEBDAV_PREVIEW_KEY = 'comics-app:webdav-preview:v1'
+const WEBDAV_INDEX_KEY = 'comics-app:webdav-index:v1'
+const CLOUD_CACHE_SETTINGS_KEY = 'comics-app:cloud-cache-settings:v1'
 const LOCAL_PROVIDER_ID = 'local-archive'
 const WEBDAV_PROVIDER_ID = 'webdav'
+const DEFAULT_CLOUD_CACHE_BYTES = 300 * 1024 * 1024
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif'])
 const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
 const coverObjectUrls = new Map<string, string>()
+const pageObjectUrls = new Map<string, string>()
 
 interface WebDavEntry {
   name: string
@@ -26,11 +39,30 @@ interface CloudCoverCacheRecord {
   id: string
   blob: Blob
   updatedAt: number
+  sizeBytes?: number
 }
 
 interface WebDavPreviewRecord {
   imageCount: number
   firstImagePath?: string
+}
+
+interface WebDavIndexRecord {
+  items: Array<Omit<CloudMangaItem, 'coverUrl'>>
+  syncedAt: number
+}
+
+interface CloudPageCacheRecord {
+  id: string
+  mangaPath: string
+  filePath: string
+  name: string
+  type: string
+  index: number
+  blob: Blob
+  sizeBytes: number
+  updatedAt: number
+  lastAccessedAt: number
 }
 
 interface NativeWebDavPropfindResult {
@@ -139,6 +171,22 @@ function savePreviewCache(cache: Record<string, WebDavPreviewRecord>) {
   saveJsonRecord(WEBDAV_PREVIEW_KEY, cache)
 }
 
+function loadIndexCache(): WebDavIndexRecord {
+  return loadJsonRecord<WebDavIndexRecord>(WEBDAV_INDEX_KEY, { items: [], syncedAt: 0 })
+}
+
+function saveIndexCache(items: CloudMangaItem[]) {
+  const record: WebDavIndexRecord = {
+    items: items.map(({ coverUrl, ...item }) => item),
+    syncedAt: Date.now(),
+  }
+  saveJsonRecord(WEBDAV_INDEX_KEY, record)
+}
+
+function clearIndexCache() {
+  localStorage.removeItem(WEBDAV_INDEX_KEY)
+}
+
 function getPreviewRecord(path: string) {
   return loadPreviewCache()[path]
 }
@@ -191,6 +239,34 @@ function base64ToBlob(base64: string, type: string) {
     bytes[index] = binary.charCodeAt(index)
   }
   return new Blob([bytes], { type })
+}
+
+function normalizeCacheSettings(settings?: Partial<CloudCacheSettings>): CloudCacheSettings {
+  const rawBytes = Number(settings?.maxBytes)
+  const maxBytes = Number.isFinite(rawBytes) && rawBytes > 0
+    ? Math.max(50 * 1024 * 1024, Math.round(rawBytes))
+    : DEFAULT_CLOUD_CACHE_BYTES
+  return { maxBytes }
+}
+
+function loadCloudCacheSettings() {
+  return normalizeCacheSettings(loadJsonRecord<Partial<CloudCacheSettings>>(CLOUD_CACHE_SETTINGS_KEY, {}))
+}
+
+function saveCloudCacheSettings(settings: CloudCacheSettings) {
+  saveJsonRecord(CLOUD_CACHE_SETTINGS_KEY, normalizeCacheSettings(settings))
+}
+
+function webDavPageCacheId(mangaPath: string, filePath: string) {
+  return `webdav-page:${normalizeRelativePath(mangaPath)}:${normalizeRelativePath(filePath)}`
+}
+
+function isPageCacheRecord(record: { id?: string }): record is CloudPageCacheRecord {
+  return Boolean(record.id?.startsWith('webdav-page:'))
+}
+
+function isCoverCacheRecord(record: { id?: string }): record is CloudCoverCacheRecord {
+  return Boolean(record.id?.startsWith('webdav-cover:'))
 }
 
 function isAndroidNative() {
@@ -365,6 +441,7 @@ async function cacheCoverBlob(path: string, blob: Blob) {
     id: `webdav-cover:${path}`,
     blob,
     updatedAt: Date.now(),
+    sizeBytes: blob.size,
   }
   await putRecord('cloudCache', record)
   const currentUrl = coverObjectUrls.get(path)
@@ -372,6 +449,85 @@ async function cacheCoverBlob(path: string, blob: Blob) {
   const nextUrl = URL.createObjectURL(blob)
   coverObjectUrls.set(path, nextUrl)
   return nextUrl
+}
+
+async function getCachedPageUrl(mangaPath: string, filePath: string) {
+  const cacheId = webDavPageCacheId(mangaPath, filePath)
+  const cachedUrl = pageObjectUrls.get(cacheId)
+  if (cachedUrl) return cachedUrl
+
+  const record = await getRecord<CloudPageCacheRecord>('cloudCache', cacheId)
+  if (!record?.blob) return ''
+
+  record.lastAccessedAt = Date.now()
+  await putRecord('cloudCache', record)
+
+  const objectUrl = URL.createObjectURL(record.blob)
+  pageObjectUrls.set(cacheId, objectUrl)
+  return objectUrl
+}
+
+async function cachePageBlob(mangaPath: string, file: WebDavImageFile, blob: Blob, index: number) {
+  const cacheId = webDavPageCacheId(mangaPath, file.path)
+  const now = Date.now()
+  const record: CloudPageCacheRecord = {
+    id: cacheId,
+    mangaPath: normalizeRelativePath(mangaPath),
+    filePath: normalizeRelativePath(file.path),
+    name: file.name,
+    type: file.type || blob.type || mimeFromName(file.name),
+    index,
+    blob,
+    sizeBytes: blob.size,
+    updatedAt: now,
+    lastAccessedAt: now,
+  }
+
+  await putRecord('cloudCache', record)
+
+  const currentUrl = pageObjectUrls.get(cacheId)
+  if (currentUrl) URL.revokeObjectURL(currentUrl)
+  const nextUrl = URL.createObjectURL(blob)
+  pageObjectUrls.set(cacheId, nextUrl)
+
+  await enforceCloudCacheLimit()
+  return nextUrl
+}
+
+async function enforceCloudCacheLimit() {
+  const settings = loadCloudCacheSettings()
+  const records = (await getAllRecords<CloudPageCacheRecord>('cloudCache')).filter(isPageCacheRecord)
+  let totalBytes = records.reduce((sum, record) => sum + (record.sizeBytes || record.blob?.size || 0), 0)
+
+  if (totalBytes <= settings.maxBytes) return
+
+  const victims = records.sort((left, right) => left.lastAccessedAt - right.lastAccessedAt)
+  for (const record of victims) {
+    if (totalBytes <= settings.maxBytes) break
+    const cachedUrl = pageObjectUrls.get(record.id)
+    if (cachedUrl) {
+      URL.revokeObjectURL(cachedUrl)
+      pageObjectUrls.delete(record.id)
+    }
+    await deleteRecord('cloudCache', record.id)
+    totalBytes -= record.sizeBytes || record.blob?.size || 0
+  }
+}
+
+async function readCloudCacheStats(): Promise<CloudCacheStats> {
+  const records = await getAllRecords<CloudPageCacheRecord | CloudCoverCacheRecord>('cloudCache')
+  const pageRecords = records.filter(isPageCacheRecord)
+  const coverRecords = records.filter(isCoverCacheRecord)
+  const pageBytes = pageRecords.reduce((sum, record) => sum + (record.sizeBytes || record.blob?.size || 0), 0)
+  const coverBytes = coverRecords.reduce((sum, record) => sum + (record.sizeBytes || record.blob?.size || 0), 0)
+
+  return {
+    usedBytes: pageBytes + coverBytes,
+    pageBytes,
+    coverBytes,
+    pageCount: pageRecords.length,
+    coverCount: coverRecords.length,
+  }
 }
 
 function toProviderSummary(config: WebDavConfig | null): ProviderSummary {
@@ -451,6 +607,35 @@ export const cloudService = {
 
   disconnectWebDav() {
     clearWebDavConfig()
+    clearIndexCache()
+  },
+
+  async getCachedWebDavMangaItems(): Promise<CloudMangaItem[]> {
+    const cached = loadIndexCache()
+    return Promise.all(
+      cached.items.map(async (item) => ({
+        ...item,
+        coverUrl: await getCachedCoverUrl(item.path),
+      })),
+    )
+  },
+
+  getWebDavIndexedMangas(): MangaItem[] {
+    if (!loadWebDavConfig()) return []
+
+    return loadIndexCache().items.map((item) => {
+      const updatedAt = Date.parse(item.updatedAt)
+      const timestamp = Number.isNaN(updatedAt) ? Date.now() : updatedAt
+      return {
+        id: this.buildWebDavReaderId(item.path),
+        title: item.title,
+        localPath: item.path,
+        imageCount: item.imageCount,
+        source: 'cloud',
+        addedAt: timestamp,
+        updatedAt: timestamp,
+      }
+    })
   },
 
   async listFiles(providerId: string, path = ''): Promise<CloudFile[]> {
@@ -501,6 +686,12 @@ export const cloudService = {
         }
       }),
     )
+  },
+
+  async refreshWebDavMangaIndex(path = '') {
+    const items = await this.getWebDavMangaItems(path)
+    saveIndexCache(items)
+    return items
   },
 
   async getWebDavMangaPreview(path: string) {
@@ -554,18 +745,14 @@ export const cloudService = {
       throw new Error('该文件夹里没有可阅读的图片')
     }
 
-    const images = await Promise.all(
-      files.map(async (file, index) => {
-        const blob = await fetchBlobByPath(file.path)
-        return {
-          id: `${readerId}:${index}`,
-          index,
-          name: file.name,
-          type: file.type,
-          src: URL.createObjectURL(blob),
-        } satisfies ImageAsset
-      }),
-    )
+    const images = files.map((file, index) => ({
+      id: `${readerId}:${index}`,
+      index,
+      name: file.name,
+      type: file.type,
+      src: '',
+      remotePath: file.path,
+    } satisfies ImageAsset))
 
     return {
       id: readerId,
@@ -573,6 +760,52 @@ export const cloudService = {
       imageCount: images.length,
       images,
     }
+  },
+
+  async loadWebDavImageAssetSrc(mangaPath: string, image: ImageAsset) {
+    if (image.src) return image.src
+    if (!image.remotePath) return ''
+
+    const cachedUrl = await getCachedPageUrl(mangaPath, image.remotePath)
+    if (cachedUrl) return cachedUrl
+
+    const file: WebDavImageFile = {
+      name: image.name,
+      path: image.remotePath,
+      isDir: false,
+      sizeBytes: 0,
+      updatedAt: new Date().toISOString(),
+      type: image.type,
+    }
+    const blob = await fetchBlobByPath(file.path)
+    return cachePageBlob(mangaPath, file, blob, image.index)
+  },
+
+  getCloudCacheSettings() {
+    return loadCloudCacheSettings()
+  },
+
+  async updateCloudCacheSettings(settings: CloudCacheSettings) {
+    saveCloudCacheSettings(settings)
+    await enforceCloudCacheLimit()
+    return loadCloudCacheSettings()
+  },
+
+  async getCloudCacheStats() {
+    return readCloudCacheStats()
+  },
+
+  async clearCloudCache() {
+    const records = await getAllRecords<CloudPageCacheRecord | CloudCoverCacheRecord>('cloudCache')
+    await Promise.all(
+      records
+        .filter((record) => isPageCacheRecord(record) || isCoverCacheRecord(record))
+        .map((record) => deleteRecord('cloudCache', record.id)),
+    )
+    pageObjectUrls.forEach((url) => URL.revokeObjectURL(url))
+    coverObjectUrls.forEach((url) => URL.revokeObjectURL(url))
+    pageObjectUrls.clear()
+    coverObjectUrls.clear()
   },
 
   async downloadWebDavManga(path: string) {

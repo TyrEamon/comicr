@@ -46,7 +46,7 @@ import { BookOpen } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import MangaGrid from './components/MangaGrid.vue'
 
-type LibraryTab = 'all' | 'favorite' | 'readLater' | 'download'
+type LibraryTab = 'all' | 'favorite' | 'readLater' | 'cloud'
 
 const library = useLibraryStore()
 const searchQuery = ref('')
@@ -55,7 +55,7 @@ const tabItems: Array<{ id: LibraryTab, label: string }> = [
   { id: 'all', label: '全部' },
   { id: 'favorite', label: '收藏' },
   { id: 'readLater', label: '稍后看' },
-  { id: 'download', label: '下载' },
+  { id: 'cloud', label: '云盘' },
 ]
 
 onMounted(() => {
@@ -79,7 +79,7 @@ const visibleMangas = computed(() => {
       const shelf = library.getShelfState(manga.id)
       if (activeTab.value === 'favorite') return shelf.favorite
       if (activeTab.value === 'readLater') return shelf.readLater
-      if (activeTab.value === 'download') return manga.source === 'download'
+      if (activeTab.value === 'cloud') return manga.source === 'cloud'
       return true
     })
     .sort((left, right) => {

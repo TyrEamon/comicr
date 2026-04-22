@@ -1,4 +1,5 @@
 import JSZip from 'jszip'
+import { cloudService } from './cloudService'
 import {
   deleteImagesByManga,
   deleteRecord,
@@ -91,10 +92,17 @@ function saveJsonRecord<T>(key: string, value: T) {
 
 export const libraryService = {
   async listMangas() {
-    return listMangas()
+    const localMangas = await listMangas()
+    const cloudMangas = cloudService.getWebDavIndexedMangas()
+    const localIds = new Set(localMangas.map((manga) => manga.id))
+    return [...cloudMangas.filter((manga) => !localIds.has(manga.id)), ...localMangas]
+      .sort((left, right) => right.updatedAt - left.updatedAt)
   },
 
   async getManga(id: string) {
+    if (cloudService.isWebDavReaderId(id)) {
+      return cloudService.getWebDavIndexedMangas().find((manga) => manga.id === id)
+    }
     return getRecord<MangaItem>('mangas', id)
   },
 
@@ -213,6 +221,11 @@ export const libraryService = {
   },
 
   async getCoverUrl(mangaId: string) {
+    if (cloudService.isWebDavReaderId(mangaId)) {
+      const path = cloudService.pathFromReaderId(mangaId)
+      return (await cloudService.getWebDavMangaPreview(path)).coverUrl
+    }
+
     const images = await getImagesByManga(mangaId)
     const cover = images[0]
     if (!cover) return ''
@@ -247,6 +260,12 @@ export const libraryService = {
   },
 
   async deleteManga(mangaId: string) {
+    if (cloudService.isWebDavReaderId(mangaId)) {
+      this.removeProgress(mangaId)
+      this.removeShelfState(mangaId)
+      return
+    }
+
     await deleteImagesByManga(mangaId)
     await deleteRecord('mangas', mangaId)
     this.removeProgress(mangaId)

@@ -29,6 +29,7 @@ export interface ImageAsset {
   type: string
   src: string
   uri?: string
+  remotePath?: string
 }
 
 export interface ShelfState {
@@ -102,4 +103,16 @@ export interface CloudMangaItem {
   sizeBytes: number
   imageCount: number
   coverUrl: string
+}
+
+export interface CloudCacheSettings {
+  maxBytes: number
+}
+
+export interface CloudCacheStats {
+  usedBytes: number
+  pageBytes: number
+  coverBytes: number
+  pageCount: number
+  coverCount: number
 }

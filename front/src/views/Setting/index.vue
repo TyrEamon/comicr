@@ -55,13 +55,46 @@
       </div>
     </section>
 
-    <section class="surface-card setting-card">
+    <section class="surface-card setting-card storage-card">
       <div class="setting-card-header">
         <div>
-          <h2>存储管理</h2>
-          <p>本地书库</p>
+          <h2>缓存管理</h2>
+          <p>云盘阅读缓存</p>
         </div>
-        <span class="status-pill">{{ library.count }} 本</span>
+        <span class="status-pill">{{ formatBytes(cacheStats.usedBytes) }}</span>
+      </div>
+
+      <div class="cache-stats">
+        <div>
+          <strong>{{ cacheStats.pageCount }}</strong>
+          <span>缓存页</span>
+        </div>
+        <div>
+          <strong>{{ formatBytes(cacheStats.coverBytes) }}</strong>
+          <span>封面</span>
+        </div>
+      </div>
+
+      <label class="input-label" for="cloud-cache-limit">缓存上限（MB）</label>
+      <input
+        id="cloud-cache-limit"
+        v-model.number="cacheLimitMb"
+        class="text-input"
+        type="number"
+        min="50"
+        step="50"
+        inputmode="numeric"
+      />
+
+      <div class="cache-actions">
+        <button class="ghost-button import-button" type="button" :disabled="busy" @click="saveCacheLimit">
+          <HardDrive :size="18" />
+          保存上限
+        </button>
+        <button class="ghost-button import-button danger-action" type="button" :disabled="busy || cacheStats.usedBytes === 0" @click="clearCloudCache">
+          <Trash2 :size="18" />
+          清理缓存
+        </button>
       </div>
     </section>
 
@@ -75,9 +108,10 @@
 </template>
 
 <script setup lang="ts">
+import { cloudService } from '@/services/cloudService'
 import { localFolderService } from '@/services/localFolderService'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { Archive, FolderOpen, Images } from 'lucide-vue-next'
+import { Archive, FolderOpen, HardDrive, Images, Trash2 } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
 
 const library = useLibraryStore()
@@ -87,9 +121,12 @@ const importTitle = ref('')
 const message = ref('')
 const busy = ref(false)
 const importedManga = ref<{ id: string; title: string } | null>(null)
+const cacheStats = ref({ usedBytes: 0, pageBytes: 0, coverBytes: 0, pageCount: 0, coverCount: 0 })
+const cacheLimitMb = ref(Math.round(cloudService.getCloudCacheSettings().maxBytes / 1024 / 1024))
 
 onMounted(() => {
   void library.load()
+  void refreshCloudCacheStats()
 })
 
 function requestedTitle() {
@@ -170,6 +207,46 @@ async function handleFolderImport() {
     busy.value = false
   }
 }
+
+async function refreshCloudCacheStats() {
+  cacheStats.value = await cloudService.getCloudCacheStats()
+}
+
+async function saveCacheLimit() {
+  busy.value = true
+  try {
+    const settings = await cloudService.updateCloudCacheSettings({
+      maxBytes: Math.max(50, Number(cacheLimitMb.value) || 300) * 1024 * 1024,
+    })
+    cacheLimitMb.value = Math.round(settings.maxBytes / 1024 / 1024)
+    await refreshCloudCacheStats()
+    message.value = `云盘缓存上限已保存：${cacheLimitMb.value} MB`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '保存缓存设置失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function clearCloudCache() {
+  busy.value = true
+  try {
+    await cloudService.clearCloudCache()
+    await refreshCloudCacheStats()
+    message.value = '云盘缓存已清理'
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '清理缓存失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`
+  return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`
+}
 </script>
 
 <style scoped>
@@ -183,6 +260,11 @@ async function handleFolderImport() {
 }
 
 .library-card {
+  display: grid;
+  gap: 14px;
+}
+
+.storage-card {
   display: grid;
   gap: 14px;
 }
@@ -216,6 +298,38 @@ async function handleFolderImport() {
   gap: 10px;
 }
 
+.cache-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cache-stats div {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(153, 143, 131, 0.16);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.cache-stats strong {
+  color: var(--color-text);
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.cache-stats span {
+  color: rgba(209, 197, 183, 0.58);
+  font-size: 12px;
+}
+
+.cache-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .import-button {
   min-width: 0;
   padding-inline: 10px;
@@ -224,6 +338,10 @@ async function handleFolderImport() {
 .import-button:disabled {
   cursor: wait;
   opacity: 0.58;
+}
+
+.danger-action {
+  color: #fca5a5;
 }
 
 .hidden-input {

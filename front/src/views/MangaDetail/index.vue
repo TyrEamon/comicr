@@ -108,7 +108,7 @@ onMounted(async () => {
 
 function readNow() {
   if (!manga.value) return
-  router.push(`/reader/${manga.value.id}`)
+  router.push({ name: 'reader', params: { id: manga.value.id } })
 }
 
 function toggleFavorite() {

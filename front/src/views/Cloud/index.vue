@@ -106,7 +106,7 @@
           <span class="status-pill">{{ webDavFolders.length }} 项</span>
         </div>
 
-        <div v-if="loadingFolders" class="empty-state compact">正在读取 WebDAV 目录...</div>
+        <div v-if="loadingFolders && webDavFolders.length === 0" class="empty-state compact">正在读取 WebDAV 目录...</div>
 
         <div v-else-if="webDavFolders.length === 0" class="empty-state compact">
           当前目录下还没有漫画文件夹，或者 WebDAV 路径不对。
@@ -170,6 +170,7 @@ onMounted(async () => {
   await library.load()
   await refreshProviders()
   if (webDavConnected.value) {
+    await loadCachedWebDavLibrary()
     await refreshWebDavLibrary()
   }
 })
@@ -207,16 +208,20 @@ async function disconnectWebDav() {
   webDavFolders.value = []
   message.value = 'WebDAV 已断开'
   await refreshProviders()
+  await library.load()
 }
 
 async function refreshWebDavLibrary() {
   loadingFolders.value = true
   message.value = webDavConnected.value ? '正在读取远程漫画目录...' : message.value
   try {
-    webDavFolders.value = await cloudService.listFiles(cloudService.webDavProviderId)
+    const items = await cloudService.refreshWebDavMangaIndex()
+    applyWebDavMangaItems(items)
     Object.keys(previewMap).forEach((key) => delete previewMap[key])
-    await warmPreviews(webDavFolders.value.slice(0, 12))
-    void warmPreviews(webDavFolders.value.slice(12))
+    items.forEach((item) => {
+      previewMap[item.path] = { imageCount: item.imageCount, coverUrl: item.coverUrl }
+    })
+    await library.load()
     message.value = webDavFolders.value.length > 0 ? '远程漫画目录已刷新' : 'WebDAV 已连接，但当前目录还没有漫画文件夹'
   } catch (error) {
     message.value = error instanceof Error ? error.message : '读取 WebDAV 目录失败'
@@ -225,14 +230,26 @@ async function refreshWebDavLibrary() {
   }
 }
 
-async function warmPreviews(folders: CloudFile[]) {
-  for (const folder of folders) {
-    try {
-      previewMap[folder.path] = await cloudService.getWebDavMangaPreview(folder.path)
-    } catch {
-      previewMap[folder.path] = { imageCount: 0, coverUrl: '' }
-    }
-  }
+async function loadCachedWebDavLibrary() {
+  const items = await cloudService.getCachedWebDavMangaItems()
+  if (items.length === 0) return
+
+  applyWebDavMangaItems(items)
+  Object.keys(previewMap).forEach((key) => delete previewMap[key])
+  items.forEach((item) => {
+    previewMap[item.path] = { imageCount: item.imageCount, coverUrl: item.coverUrl }
+  })
+}
+
+function applyWebDavMangaItems(items: Awaited<ReturnType<typeof cloudService.getCachedWebDavMangaItems>>) {
+  webDavFolders.value = items.map((item) => ({
+    id: item.id,
+    name: item.title,
+    path: item.path,
+    isDir: true,
+    sizeBytes: item.sizeBytes,
+    updatedAt: item.updatedAt,
+  }))
 }
 
 async function openWebDavReader(path: string) {

@@ -383,9 +383,11 @@ async function ensureImagesAround(index: number) {
 
 async function ensureImageLoaded(index: number) {
   const image = images.value[index]
-  if (!image || image.src || !image.uri) return
+  if (!image || image.src) return
 
-  const src = await libraryService.loadImageAssetSrc(image)
+  const src = isCloudReader.value
+    ? await cloudService.loadWebDavImageAssetSrc(cloudService.pathFromReaderId(mangaId.value), image)
+    : await libraryService.loadImageAssetSrc(image)
   if (!src) return
 
   images.value[index] = {

@@ -63,7 +63,7 @@ const sourceLabel = computed(() => {
 })
 
 function openDetail() {
-  router.push(`/manga/${props.manga.id}`)
+  router.push({ name: 'manga-detail', params: { id: props.manga.id } })
 }
 </script>
 
