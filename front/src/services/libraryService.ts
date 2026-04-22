@@ -14,6 +14,8 @@ const SHELF_KEY = 'comics-app:shelf:v1'
 const PROGRESS_KEY = 'comics-app:progress:v1'
 const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
 
+type PickedImageFile = File & { webkitRelativePath?: string }
+
 function extensionOf(name: string) {
   const index = name.lastIndexOf('.')
   return index >= 0 ? name.slice(index).toLowerCase() : ''
@@ -38,6 +40,25 @@ function mimeFromName(name: string) {
 
 function cleanArchiveTitle(name: string) {
   return name.replace(/\.(zip|cbz)$/i, '').trim() || '未命名漫画'
+}
+
+function isImageFile(file: PickedImageFile) {
+  return file.type.startsWith('image/') || IMAGE_EXTENSIONS.has(extensionOf(file.name))
+}
+
+function fileSortPath(file: PickedImageFile) {
+  return file.webkitRelativePath || file.name
+}
+
+function cleanFolderTitle(files: PickedImageFile[]) {
+  const firstRelativePath = files.find((file) => file.webkitRelativePath)?.webkitRelativePath
+  if (firstRelativePath) {
+    const folderName = firstRelativePath.split('/').filter(Boolean)[0]
+    if (folderName) return folderName
+  }
+
+  const firstName = files[0]?.name
+  return firstName ? firstName.replace(/\.[^.]+$/, '').trim() || '图片导入' : '图片导入'
 }
 
 function randomId(prefix: string) {
@@ -86,6 +107,25 @@ export const libraryService = {
     })))
 
     return this.importImageBlobs(cleanArchiveTitle(file.name), blobs, source)
+  },
+
+  async importImageFiles(files: File[], source: MangaSource = 'archive') {
+    const imageFiles = files
+      .map((file) => file as PickedImageFile)
+      .filter(isImageFile)
+      .sort((left, right) => collator.compare(fileSortPath(left), fileSortPath(right)))
+
+    if (imageFiles.length === 0) {
+      throw new Error('选择的文件夹里没有可导入的图片')
+    }
+
+    const blobs = imageFiles.map((file) => ({
+      name: fileSortPath(file),
+      type: file.type || mimeFromName(file.name),
+      blob: file,
+    }))
+
+    return this.importImageBlobs(cleanFolderTitle(imageFiles), blobs, source)
   },
 
   async importImageBlobs(

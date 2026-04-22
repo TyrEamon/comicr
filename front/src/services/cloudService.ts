@@ -8,7 +8,7 @@ const LOCAL_PROVIDER: ProviderSummary = {
   connected: true,
   usedBytes: 0,
   totalBytes: 0,
-  description: '使用本地 ZIP 或 CBZ 文件，先打通云盘导入的同一条链路。',
+  description: '使用本地 ZIP、CBZ、文件夹或图片，先打通云盘导入的同一条链路。',
 }
 
 const WEBDAV_PROVIDER: ProviderSummary = {
@@ -34,7 +34,7 @@ export const cloudService = {
     return [
       {
         id: 'local-import',
-        name: '导入 ZIP / CBZ',
+        name: '导入 ZIP / CBZ / 文件夹',
         path: 'local-import',
         isDir: false,
         sizeBytes: 0,
@@ -45,6 +45,15 @@ export const cloudService = {
 
   async importArchive(file: File): Promise<ImportResult> {
     const manga = await libraryService.importArchive(file, 'cloud')
+    return {
+      mangaId: manga.id,
+      title: manga.title,
+      fileCount: manga.imageCount,
+    }
+  },
+
+  async importImageFiles(files: File[]): Promise<ImportResult> {
+    const manga = await libraryService.importImageFiles(files, 'cloud')
     return {
       mangaId: manga.id,
       title: manga.title,

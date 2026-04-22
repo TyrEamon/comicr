@@ -22,12 +22,24 @@
     <section class="toolbar surface-card">
       <input ref="searchInput" v-model="searchQuery" class="text-input" type="search" placeholder="搜索漫画标题" aria-label="搜索漫画标题" />
 
-      <button class="primary-button import-button" type="button" @click="fileInput?.click()">
-        <Archive :size="18" />
-        导入
-      </button>
+      <div class="import-actions">
+        <button class="ghost-button import-button" type="button" @click="archiveInput?.click()">
+          <Archive :size="18" />
+          压缩包
+        </button>
+        <button class="primary-button import-button" type="button" @click="folderInput?.click()">
+          <FolderOpen :size="18" />
+          文件夹
+        </button>
+        <button class="ghost-button import-button" type="button" @click="imageInput?.click()">
+          <Images :size="18" />
+          图片
+        </button>
+      </div>
 
-      <input ref="fileInput" class="hidden-input" type="file" accept=".zip,.cbz,application/zip" @change="handleImport" />
+      <input ref="archiveInput" class="hidden-input" type="file" accept=".zip,.cbz,application/zip" @change="handleArchiveImport" />
+      <input ref="folderInput" class="hidden-input" type="file" accept="image/*" multiple webkitdirectory directory @change="handleImageFilesImport($event, '文件夹')" />
+      <input ref="imageInput" class="hidden-input" type="file" accept="image/*" multiple @change="handleImageFilesImport($event, '图片')" />
     </section>
 
     <div v-if="message" class="message">{{ message }}</div>
@@ -47,15 +59,18 @@
     <section v-else class="empty-state surface-card">
       <BookOpen :size="34" />
       <h2>还没有漫画</h2>
-      <p>导入一个 ZIP 或 CBZ 文件，就能创建手机端书库里的第一本漫画。</p>
-      <button class="primary-button" type="button" @click="fileInput?.click()">导入压缩包</button>
+      <p>导入 ZIP、CBZ、已解压文件夹，或者直接选择一组图片，就能创建第一本漫画。</p>
+      <div class="empty-actions">
+        <button class="primary-button" type="button" @click="folderInput?.click()">导入文件夹</button>
+        <button class="ghost-button" type="button" @click="archiveInput?.click()">导入压缩包</button>
+      </div>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useLibraryStore } from '@/stores/libraryStore'
-import { Archive, BookOpen } from 'lucide-vue-next'
+import { Archive, BookOpen, FolderOpen, Images } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import MangaGrid from './components/MangaGrid.vue'
@@ -64,7 +79,9 @@ type LibraryTab = 'all' | 'favorite' | 'readLater' | 'download'
 
 const route = useRoute()
 const library = useLibraryStore()
-const fileInput = ref<HTMLInputElement | null>(null)
+const archiveInput = ref<HTMLInputElement | null>(null)
+const folderInput = ref<HTMLInputElement | null>(null)
+const imageInput = ref<HTMLInputElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const searchQuery = ref('')
 const activeTab = ref<LibraryTab>('all')
@@ -122,7 +139,7 @@ function focusSearchInput() {
   })
 }
 
-async function handleImport(event: Event) {
+async function handleArchiveImport(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
@@ -130,9 +147,25 @@ async function handleImport(event: Event) {
   message.value = '正在导入压缩包...'
   try {
     const manga = await library.importArchive(file)
-    message.value = `已导入 ${manga.title}`
+    message.value = `已导入 ${manga.title}（${manga.imageCount} 页）`
   } catch (error) {
     message.value = error instanceof Error ? error.message : '导入失败'
+  } finally {
+    input.value = ''
+  }
+}
+
+async function handleImageFilesImport(event: Event, label: string) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  if (files.length === 0) return
+
+  message.value = `正在导入${label}...`
+  try {
+    const manga = await library.importImageFiles(files)
+    message.value = `已导入 ${manga.title}（${manga.imageCount} 页）`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : `${label}导入失败`
   } finally {
     input.value = ''
   }
@@ -195,20 +228,21 @@ async function handleImport(event: Event) {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 1fr;
   gap: 12px;
   margin-bottom: 26px;
   padding: 16px;
 }
 
-.import-button {
-  min-width: 128px;
+.import-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
 }
 
-@media (max-width: 420px) {
-  .toolbar {
-    grid-template-columns: 1fr;
-  }
+.import-button {
+  min-width: 0;
+  padding-inline: 10px;
 }
 
 .hidden-input {
@@ -241,5 +275,12 @@ async function handleImport(event: Event) {
   max-width: 310px;
   margin: 0;
   line-height: 1.7;
+}
+
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
 }
 </style>

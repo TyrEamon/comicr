@@ -39,14 +39,26 @@
     <section v-if="selectedProvider === 'local-archive'" class="local-import surface-card">
       <div>
         <p class="label-caps">本地导入</p>
-        <h2>导入 ZIP / CBZ</h2>
-        <p>这条链路用于先验证云盘导入流程。等它稳定后，再接入 WebDAV。</p>
+        <h2>导入本地资源</h2>
+        <p>支持 ZIP、CBZ、已解压文件夹和图片选择。等这条链路稳定后，再接入 WebDAV。</p>
       </div>
-      <button class="primary-button" type="button" @click="fileInput?.click()">
-        <Archive :size="18" />
-        选择文件
-      </button>
-      <input ref="fileInput" class="hidden-input" type="file" accept=".zip,.cbz,application/zip" @change="handleImport" />
+      <div class="local-import-actions">
+        <button class="ghost-button" type="button" @click="archiveInput?.click()">
+          <Archive :size="18" />
+          压缩包
+        </button>
+        <button class="primary-button" type="button" @click="folderInput?.click()">
+          <FolderOpen :size="18" />
+          文件夹
+        </button>
+        <button class="ghost-button" type="button" @click="imageInput?.click()">
+          <Images :size="18" />
+          图片
+        </button>
+      </div>
+      <input ref="archiveInput" class="hidden-input" type="file" accept=".zip,.cbz,application/zip" @change="handleArchiveImport" />
+      <input ref="folderInput" class="hidden-input" type="file" accept="image/*" multiple webkitdirectory directory @change="handleImageFilesImport($event, '文件夹')" />
+      <input ref="imageInput" class="hidden-input" type="file" accept="image/*" multiple @change="handleImageFilesImport($event, '图片')" />
     </section>
 
     <p v-if="message" class="message">{{ message }}</p>
@@ -57,12 +69,14 @@
 import { cloudService } from '@/services/cloudService'
 import type { ProviderSummary } from '@/services/types'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { Archive, Cloud as CloudIcon, CloudOff } from 'lucide-vue-next'
+import { Archive, Cloud as CloudIcon, CloudOff, FolderOpen, Images } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
 
 const providers = ref<ProviderSummary[]>([])
 const selectedProvider = ref('local-archive')
-const fileInput = ref<HTMLInputElement | null>(null)
+const archiveInput = ref<HTMLInputElement | null>(null)
+const folderInput = ref<HTMLInputElement | null>(null)
+const imageInput = ref<HTMLInputElement | null>(null)
 const message = ref('')
 const library = useLibraryStore()
 
@@ -75,14 +89,31 @@ function selectProvider(providerId: string) {
   selectedProvider.value = providerId
 }
 
-async function handleImport(event: Event) {
+async function handleArchiveImport(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
 
-  message.value = '正在从本地导入...'
+  message.value = '正在从本地导入压缩包...'
   try {
     const result = await cloudService.importArchive(file)
+    await library.load()
+    message.value = `已导入 ${result.title}（${result.fileCount} 页）`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '云盘导入失败'
+  } finally {
+    input.value = ''
+  }
+}
+
+async function handleImageFilesImport(event: Event, label: string) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  if (files.length === 0) return
+
+  message.value = `正在从本地导入${label}...`
+  try {
+    const result = await cloudService.importImageFiles(files)
     await library.load()
     message.value = `已导入 ${result.title}（${result.fileCount} 页）`
   } catch (error) {
@@ -197,6 +228,17 @@ async function handleImport(event: Event) {
   margin: 0;
   color: rgba(209, 197, 183, 0.66);
   line-height: 1.7;
+}
+
+.local-import-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.local-import-actions button {
+  min-width: 0;
+  padding-inline: 10px;
 }
 
 .hidden-input {

@@ -34,6 +34,12 @@ export const useLibraryStore = defineStore('library', () => {
     return manga
   }
 
+  async function importImageFiles(files: File[]) {
+    const manga = await libraryService.importImageFiles(files)
+    await load()
+    return manga
+  }
+
   async function deleteManga(mangaId: string) {
     await libraryService.deleteManga(mangaId)
     await load()
@@ -69,6 +75,7 @@ export const useLibraryStore = defineStore('library', () => {
     count,
     load,
     importArchive,
+    importImageFiles,
     deleteManga,
     getShelfState,
     toggleFavorite,
@@ -76,4 +83,3 @@ export const useLibraryStore = defineStore('library', () => {
     togglePinned,
   }
 })
-
