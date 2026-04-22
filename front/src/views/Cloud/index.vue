@@ -122,7 +122,7 @@
             <div class="remote-copy">
               <h3>{{ folder.name }}</h3>
               <p>
-                {{ previewMap[folder.path]?.imageCount ?? '--' }} 页
+                {{ formatImageCount(previewMap[folder.path]?.imageCount) }} 页
                 <span>·</span>
                 {{ formatUpdatedAt(folder.updatedAt) }}
               </p>
@@ -238,7 +238,9 @@ async function refreshWebDavLibrary() {
   webDavLoadFailed.value = false
   message.value = webDavConnected.value ? '正在读取远程漫画目录...' : message.value
   try {
-    const items = await cloudService.refreshWebDavMangaIndex()
+    const items = await cloudService.refreshWebDavMangaIndex('', (progress) => {
+      message.value = `正在读取封面和页数 ${progress.current}/${progress.total}`
+    })
     applyWebDavMangaItems(items)
     Object.keys(previewMap).forEach((key) => delete previewMap[key])
     items.forEach((item) => {
@@ -339,6 +341,10 @@ function formatUpdatedAt(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '--'
   return date.toLocaleDateString()
+}
+
+function formatImageCount(value?: number) {
+  return value && value > 0 ? String(value) : '--'
 }
 </script>
 

@@ -37,6 +37,12 @@ interface WebDavImageFile extends WebDavEntry {
   type: string
 }
 
+interface WebDavMangaIndexProgress {
+  current: number
+  total: number
+  title: string
+}
+
 interface CloudCoverCacheRecord {
   id: string
   blob: Blob
@@ -228,6 +234,10 @@ function mimeFromName(name: string) {
 
 function isImageName(name: string) {
   return IMAGE_EXTENSIONS.has(extensionOf(name))
+}
+
+function isCoverImageName(name: string) {
+  return /^(cover|folder|thumb|thumbnail)\.[^.]+$/i.test(name.trim())
 }
 
 function encodeBasicAuth(username: string, password: string) {
@@ -611,8 +621,7 @@ function toProviderSummary(config: WebDavConfig | null): ProviderSummary {
   }
 }
 
-async function getWebDavImageFiles(path: string) {
-  const items = await propfind(path, 1)
+function toWebDavImageFiles(items: WebDavEntry[]) {
   return items
     .filter((item) => !item.isDir && isImageName(item.name))
     .sort((left, right) => collator.compare(left.name, right.name))
@@ -620,6 +629,32 @@ async function getWebDavImageFiles(path: string) {
       ...item,
       type: mimeFromName(item.name),
     })) satisfies WebDavImageFile[]
+}
+
+async function getWebDavImageFiles(path: string) {
+  const items = await propfind(path, 1)
+  const directImages = toWebDavImageFiles(items)
+
+  const childFolders = items
+    .filter((item) => item.isDir)
+    .sort((left, right) => collator.compare(left.name, right.name))
+  const directContentImages = directImages.filter((image) => !isCoverImageName(image.name))
+
+  if (directImages.length > 0 && (childFolders.length === 0 || directContentImages.length > 0)) {
+    return directImages
+  }
+
+  const nestedImages: WebDavImageFile[] = []
+  for (const folder of childFolders) {
+    const childItems = await propfind(folder.path, 1)
+    nestedImages.push(...toWebDavImageFiles(childItems))
+  }
+
+  if (nestedImages.length > 0) {
+    return nestedImages.sort((left, right) => collator.compare(left.path, right.path))
+  }
+
+  return directImages
 }
 
 export const cloudService = {
@@ -737,36 +772,45 @@ export const cloudService = {
       }))
   },
 
-  async getWebDavMangaItems(path = ''): Promise<CloudMangaItem[]> {
+  async getWebDavMangaItems(path = '', onProgress?: (progress: WebDavMangaIndexProgress) => void): Promise<CloudMangaItem[]> {
     const folders = await this.listFiles(WEBDAV_PROVIDER_ID, path)
-    return Promise.all(
-      folders.map(async (folder) => {
-        let preview = {
-          imageCount: 0,
-          coverUrl: await getCachedCoverUrl(folder.path),
-        }
+    const mangaItems: CloudMangaItem[] = []
 
-        try {
-          preview = await this.getWebDavMangaPreview(folder.path)
-        } catch {
-          // 某个封面或页数读取失败时，仍然先把文件夹显示出来。
-        }
+    for (const [index, folder] of folders.entries()) {
+      const cachedPreview = getPreviewRecord(folder.path)
+      let preview = {
+        imageCount: cachedPreview?.imageCount ?? 0,
+        coverUrl: await getCachedCoverUrl(folder.path),
+      }
 
-        return {
-          id: folder.path || '/',
-          title: folder.name,
-          path: folder.path,
-          updatedAt: folder.updatedAt,
-          sizeBytes: folder.sizeBytes,
-          imageCount: preview.imageCount,
-          coverUrl: preview.coverUrl,
-        }
-      }),
-    )
+      onProgress?.({
+        current: index + 1,
+        total: folders.length,
+        title: folder.name,
+      })
+
+      try {
+        preview = await this.getWebDavMangaPreview(folder.path)
+      } catch {
+        // 某个封面或页数读取失败时，仍然先把文件夹显示出来。
+      }
+
+      mangaItems.push({
+        id: folder.path || '/',
+        title: folder.name,
+        path: folder.path,
+        updatedAt: folder.updatedAt,
+        sizeBytes: folder.sizeBytes,
+        imageCount: preview.imageCount,
+        coverUrl: preview.coverUrl,
+      })
+    }
+
+    return mangaItems
   },
 
-  async refreshWebDavMangaIndex(path = '') {
-    const items = await this.getWebDavMangaItems(path)
+  async refreshWebDavMangaIndex(path = '', onProgress?: (progress: WebDavMangaIndexProgress) => void) {
+    const items = await this.getWebDavMangaItems(path, onProgress)
     saveIndexCache(items)
     return items
   },
