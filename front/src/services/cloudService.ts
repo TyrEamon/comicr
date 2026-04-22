@@ -846,6 +846,10 @@ export const cloudService = {
     }
   },
 
+  async getCachedWebDavCoverUrl(path: string) {
+    return getCachedCoverUrl(path)
+  },
+
   buildWebDavReaderId(path: string) {
     return `cloud-webdav:${encodeURIComponent(normalizeRelativePath(path))}`
   },

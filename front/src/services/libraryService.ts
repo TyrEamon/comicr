@@ -262,7 +262,7 @@ export const libraryService = {
   async getCoverUrl(mangaId: string) {
     if (cloudService.isWebDavReaderId(mangaId)) {
       const path = cloudService.pathFromReaderId(mangaId)
-      return (await cloudService.getWebDavMangaPreview(path)).coverUrl
+      return cloudService.getCachedWebDavCoverUrl(path)
     }
 
     const images = await getImagesByManga(mangaId)

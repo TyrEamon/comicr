@@ -8,27 +8,52 @@ export const useLibraryStore = defineStore('library', () => {
   const coverUrls = ref<Record<string, string>>({})
   const loading = ref(false)
   const version = ref(0)
+  let loadToken = 0
 
   const count = computed(() => mangas.value.length)
 
   async function load() {
+    const currentToken = Date.now()
+    loadToken = currentToken
     loading.value = true
     try {
-      mangas.value = await libraryService.listMangas()
-      const nextCoverUrls: Record<string, string> = {}
-      await Promise.all(
-        mangas.value.map(async (manga) => {
-          try {
-            nextCoverUrls[manga.id] = await libraryService.getCoverUrl(manga.id)
-          } catch {
-            nextCoverUrls[manga.id] = ''
-          }
-        }),
-      )
-      coverUrls.value = nextCoverUrls
+      const nextMangas = await libraryService.listMangas()
+      if (loadToken !== currentToken) return
+
+      mangas.value = nextMangas
+      coverUrls.value = nextMangas.reduce<Record<string, string>>((record, manga) => {
+        record[manga.id] = coverUrls.value[manga.id] ?? ''
+        return record
+      }, {})
       version.value += 1
     } finally {
-      loading.value = false
+      if (loadToken === currentToken) {
+        loading.value = false
+      }
+    }
+
+    void loadCovers(currentToken)
+  }
+
+  async function loadCovers(token: number) {
+    for (const manga of mangas.value) {
+      if (loadToken !== token) return
+      if (coverUrls.value[manga.id]) continue
+
+      try {
+        const coverUrl = await libraryService.getCoverUrl(manga.id)
+        if (loadToken !== token) return
+        coverUrls.value = {
+          ...coverUrls.value,
+          [manga.id]: coverUrl,
+        }
+      } catch {
+        if (loadToken !== token) return
+        coverUrls.value = {
+          ...coverUrls.value,
+          [manga.id]: '',
+        }
+      }
     }
   }
 
