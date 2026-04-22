@@ -125,6 +125,19 @@ a {
   background: rgba(184, 155, 114, 0.12);
 }
 
+.icon-button:disabled,
+.primary-button:disabled,
+.ghost-button:disabled {
+  cursor: default;
+  opacity: 0.52;
+}
+
+.icon-button:disabled:active,
+.primary-button:disabled:active,
+.ghost-button:disabled:active {
+  background: transparent;
+}
+
 .top-title {
   display: flex;
   min-width: 0;

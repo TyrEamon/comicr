@@ -7,7 +7,7 @@
         <ArrowLeft :size="24" />
       </button>
       <div class="hero-copy">
-        <span class="genre-pill">本地 · 手机端</span>
+        <span class="genre-pill">{{ sourcePillLabel }}</span>
         <h1>{{ manga?.title || '正在加载' }}</h1>
         <p>{{ manga?.imageCount ?? 0 }} 页 · {{ progressLabel }}</p>
       </div>
@@ -25,7 +25,17 @@
         <IconButton label="稍后看" :active="shelf.readLater" @click="toggleReadLater">
           <Clock3 :size="20" />
         </IconButton>
+        <IconButton
+          :label="downloadButtonLabel"
+          :active="downloadAvailable"
+          :disabled="downloadButtonDisabled"
+          @click="downloadCloudManga"
+        >
+          <Check v-if="downloadAvailable" :size="20" />
+          <DownloadIcon v-else :size="20" />
+        </IconButton>
       </section>
+      <p v-if="downloadMessage" class="download-status">{{ downloadMessage }}</p>
 
       <section class="stats-grid">
         <div class="surface-card stat-card">
@@ -38,7 +48,7 @@
         </div>
         <div class="surface-card stat-card">
           <span>来源</span>
-          <strong>{{ manga?.source ?? '-' }}</strong>
+          <strong>{{ sourceLabel }}</strong>
         </div>
         <div class="surface-card stat-card">
           <span>保存</span>
@@ -65,10 +75,12 @@
 
 <script setup lang="ts">
 import IconButton from '@/components/mobile/IconButton.vue'
+import { cloudDownloadService } from '@/services/cloudDownloadService'
+import { cloudService } from '@/services/cloudService'
 import { libraryService } from '@/services/libraryService'
 import type { MangaItem } from '@/services/types'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { ArrowLeft, BookOpen, Bookmark, ChevronRight, Clock3 } from 'lucide-vue-next'
+import { ArrowLeft, BookOpen, Bookmark, Check, ChevronRight, Clock3, Download as DownloadIcon } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -77,10 +89,22 @@ const router = useRouter()
 const library = useLibraryStore()
 const manga = ref<MangaItem | null>(null)
 const coverUrl = ref('')
+const downloadBusy = ref(false)
+const downloadMessage = ref('')
+const cloudDownloaded = ref(false)
 
 const mangaId = computed(() => String(route.params.id))
 const shelf = computed(() => library.getShelfState(mangaId.value))
 const progress = computed(() => libraryService.getProgress(mangaId.value))
+const isCloudManga = computed(() => Boolean(manga.value?.source === 'cloud' || cloudService.isWebDavReaderId(mangaId.value)))
+const downloadAvailable = computed(() => Boolean(manga.value && (!isCloudManga.value || cloudDownloaded.value)))
+const downloadButtonDisabled = computed(() => !manga.value || downloadBusy.value || downloadAvailable.value)
+const downloadButtonLabel = computed(() => {
+  if (!manga.value) return '等待加载'
+  if (downloadBusy.value) return '下载中'
+  return downloadAvailable.value ? '已下载' : '下载'
+})
+const sourcePillLabel = computed(() => isCloudManga.value ? '云盘 · WebDAV' : '本地 · 手机端')
 
 const progressPercent = computed(() => {
   const value = progress.value?.progressPercent ?? 0
@@ -98,12 +122,30 @@ const savedDate = computed(() => {
   return new Date(manga.value.addedAt).toLocaleDateString()
 })
 
+const sourceLabel = computed(() => {
+  switch (manga.value?.source) {
+    case 'cloud':
+      return '云盘'
+    case 'folder':
+      return '文件夹'
+    case 'download':
+      return '已下载'
+    case 'archive':
+      return '压缩包'
+    case 'sample':
+      return '示例'
+    default:
+      return '-'
+  }
+})
+
 onMounted(async () => {
   if (library.mangas.length === 0) {
     await library.load()
   }
   manga.value = await libraryService.getManga(mangaId.value) ?? null
   coverUrl.value = await libraryService.getCoverUrl(mangaId.value)
+  refreshDownloadState()
 })
 
 function readNow() {
@@ -117,6 +159,37 @@ function toggleFavorite() {
 
 function toggleReadLater() {
   library.toggleReadLater(mangaId.value)
+}
+
+function refreshDownloadState() {
+  if (!isCloudManga.value) {
+    cloudDownloaded.value = false
+    return
+  }
+  cloudDownloaded.value = cloudDownloadService.isWebDavDownloaded(cloudService.pathFromReaderId(mangaId.value))
+}
+
+async function downloadCloudManga() {
+  if (!manga.value || !isCloudManga.value || downloadBusy.value || cloudDownloaded.value) return
+
+  downloadBusy.value = true
+  downloadMessage.value = '正在准备下载...'
+
+  try {
+    const result = await cloudDownloadService.downloadWebDavManga(
+      cloudService.pathFromReaderId(mangaId.value),
+      (progress) => {
+        downloadMessage.value = `正在下载 ${progress.current}/${progress.total}`
+      },
+    )
+    cloudDownloaded.value = true
+    downloadMessage.value = `已下载到 ${result.outputPath}`
+    await library.load()
+  } catch (error) {
+    downloadMessage.value = error instanceof Error ? error.message : '下载失败'
+  } finally {
+    downloadBusy.value = false
+  }
 }
 </script>
 
@@ -199,13 +272,21 @@ function toggleReadLater() {
 
 .action-row {
   display: grid;
-  grid-template-columns: 1fr 56px 56px;
+  grid-template-columns: 1fr 56px 56px 56px;
   gap: 12px;
   margin-bottom: 34px;
 }
 
 .read-button {
   min-height: 56px;
+}
+
+.download-status {
+  min-height: 20px;
+  margin: -20px 0 28px;
+  color: rgba(209, 197, 183, 0.68);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .stats-grid {
