@@ -1,13 +1,15 @@
 <template>
-  <div class="reader-view" @click="toggleControls">
+  <div class="reader-view" :class="{ 'fit-width-mode': fitMode === 'width' }" @click="toggleControls">
     <div v-if="loading" class="reader-loading">正在加载页面...</div>
 
     <template v-else>
       <img
         v-if="currentImage"
         class="reader-image"
+        :class="{ 'fit-width': fitMode === 'width' }"
         :src="currentImage.src"
         :alt="currentImage.name"
+        :style="{ filter: `brightness(${brightness}%)` }"
         @click.stop="toggleControls"
       />
 
@@ -19,37 +21,74 @@
           <span>书库</span>
           <strong>{{ manga?.title || '阅读器' }}</strong>
         </div>
-        <button class="reader-icon" type="button" aria-label="收藏">
-          <Bookmark :size="22" />
+        <button class="reader-icon" type="button" aria-label="收藏" @click="toggleFavorite">
+          <Bookmark :size="22" :fill="favorite ? 'currentColor' : 'none'" />
         </button>
       </div>
 
       <div v-if="controlsVisible" class="reader-bottom" @click.stop>
-        <div class="reader-actions">
-          <button class="reader-tool" type="button" aria-label="上一页" @click="previousPage">
-            <ChevronLeft :size="24" />
+        <div class="reader-progress-row">
+          <button class="reader-page-button" type="button" aria-label="上一页" @click="previousPage">
+            <ChevronLeft :size="30" />
           </button>
-          <button class="reader-tool active" type="button" aria-label="阅读模式">
-            <PanelTop :size="22" />
-          </button>
-          <button class="reader-tool" type="button" aria-label="下一页" @click="nextPage">
-            <ChevronRight :size="24" />
+
+          <div class="reader-progress">
+            <span>{{ currentIndex + 1 }}</span>
+            <input
+              v-model.number="currentIndex"
+              type="range"
+              min="0"
+              :max="Math.max(0, images.length - 1)"
+              step="1"
+              aria-label="阅读进度"
+            />
+            <span>{{ images.length }}</span>
+          </div>
+
+          <button class="reader-page-button" type="button" aria-label="下一页" @click="nextPage">
+            <ChevronRight :size="30" />
           </button>
         </div>
 
-        <div class="reader-progress">
-          <span>{{ currentIndex + 1 }}</span>
-          <input
-            v-model.number="currentIndex"
-            type="range"
-            min="0"
-            :max="Math.max(0, images.length - 1)"
-            step="1"
-            aria-label="阅读进度"
-          />
-          <span>{{ images.length }}</span>
+        <div v-if="brightnessVisible" class="reader-panel" aria-label="亮度">
+          <span>亮度</span>
+          <input v-model.number="brightness" type="range" min="60" max="140" step="5" aria-label="亮度" @input="scheduleHide" />
+          <strong>{{ brightness }}%</strong>
         </div>
-        <div class="progress-label">阅读进度</div>
+
+        <div v-if="pageListVisible" class="reader-page-strip" aria-label="页面列表">
+          <button
+            v-for="(_, index) in images"
+            :key="index"
+            class="reader-page-chip"
+            :class="{ active: index === currentIndex }"
+            type="button"
+            @click="goToPage(index)"
+          >
+            {{ index + 1 }}
+          </button>
+        </div>
+
+        <div v-if="readerSettingsVisible" class="reader-panel setting-panel" aria-label="阅读页设置">
+          <span>页面适配</span>
+          <button class="setting-chip" :class="{ active: fitMode === 'contain' }" type="button" @click="setFitMode('contain')">适应屏幕</button>
+          <button class="setting-chip" :class="{ active: fitMode === 'width' }" type="button" @click="setFitMode('width')">适应宽度</button>
+        </div>
+
+        <div class="reader-actions">
+          <button class="reader-tool" :class="{ active: brightnessVisible }" type="button" aria-label="亮度" @click="toggleBrightness">
+            <Sun :size="24" />
+          </button>
+          <button class="reader-tool" :class="{ active: favorite }" type="button" aria-label="收藏" @click="toggleFavorite">
+            <Bookmark :size="24" :fill="favorite ? 'currentColor' : 'none'" />
+          </button>
+          <button class="reader-tool" :class="{ active: pageListVisible }" type="button" aria-label="页面列表" @click="togglePageList">
+            <PanelTop :size="24" />
+          </button>
+          <button class="reader-tool" :class="{ active: readerSettingsVisible }" type="button" aria-label="阅读页设置" @click="toggleReaderSettings">
+            <Settings :size="24" />
+          </button>
+        </div>
       </div>
     </template>
   </div>
@@ -58,7 +97,7 @@
 <script setup lang="ts">
 import { libraryService } from '@/services/libraryService'
 import type { ImageAsset, MangaItem } from '@/services/types'
-import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, PanelTop } from 'lucide-vue-next'
+import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, PanelTop, Settings, Sun } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -69,6 +108,12 @@ const images = ref<ImageAsset[]>([])
 const currentIndex = ref(0)
 const controlsVisible = ref(true)
 const loading = ref(true)
+const favorite = ref(false)
+const brightness = ref(100)
+const brightnessVisible = ref(false)
+const pageListVisible = ref(false)
+const readerSettingsVisible = ref(false)
+const fitMode = ref<'contain' | 'width'>('contain')
 let hideTimer: number | undefined
 
 const mangaId = computed(() => String(route.params.id))
@@ -78,6 +123,7 @@ onMounted(async () => {
   loading.value = true
   manga.value = await libraryService.getManga(mangaId.value) ?? null
   images.value = await libraryService.getImageAssets(mangaId.value)
+  favorite.value = libraryService.getShelfState(mangaId.value).favorite
   const progress = libraryService.getProgress(mangaId.value)
   currentIndex.value = Math.min(progress?.lastIndex ?? 0, Math.max(0, images.value.length - 1))
   loading.value = false
@@ -106,6 +152,9 @@ function scheduleHide() {
   window.clearTimeout(hideTimer)
   hideTimer = window.setTimeout(() => {
     controlsVisible.value = false
+    brightnessVisible.value = false
+    pageListVisible.value = false
+    readerSettingsVisible.value = false
   }, 3200)
 }
 
@@ -116,6 +165,43 @@ function previousPage() {
 
 function nextPage() {
   currentIndex.value = Math.min(images.value.length - 1, currentIndex.value + 1)
+  scheduleHide()
+}
+
+function toggleFavorite() {
+  favorite.value = !favorite.value
+  libraryService.setShelfState(mangaId.value, { favorite: favorite.value })
+  scheduleHide()
+}
+
+function toggleBrightness() {
+  brightnessVisible.value = !brightnessVisible.value
+  pageListVisible.value = false
+  readerSettingsVisible.value = false
+  scheduleHide()
+}
+
+function togglePageList() {
+  pageListVisible.value = !pageListVisible.value
+  brightnessVisible.value = false
+  readerSettingsVisible.value = false
+  scheduleHide()
+}
+
+function toggleReaderSettings() {
+  readerSettingsVisible.value = !readerSettingsVisible.value
+  brightnessVisible.value = false
+  pageListVisible.value = false
+  scheduleHide()
+}
+
+function goToPage(index: number) {
+  currentIndex.value = index
+  scheduleHide()
+}
+
+function setFitMode(mode: 'contain' | 'width') {
+  fitMode.value = mode
   scheduleHide()
 }
 </script>
@@ -131,6 +217,11 @@ function nextPage() {
   background: #000;
 }
 
+.reader-view.fit-width-mode {
+  align-items: flex-start;
+  overflow-y: auto;
+}
+
 .reader-loading {
   color: rgba(229, 226, 225, 0.7);
 }
@@ -139,6 +230,12 @@ function nextPage() {
   max-width: 100%;
   max-height: 100dvh;
   object-fit: contain;
+}
+
+.reader-image.fit-width {
+  width: 100%;
+  height: auto;
+  max-height: none;
 }
 
 .reader-top {
@@ -173,60 +270,148 @@ function nextPage() {
 }
 
 .reader-icon,
-.reader-tool {
+.reader-tool,
+.reader-page-button {
   display: inline-flex;
-  width: 48px;
-  height: 48px;
   align-items: center;
   justify-content: center;
   border: 0;
   border-radius: 999px;
   color: var(--color-accent);
   background: rgba(30, 30, 30, 0.76);
+  cursor: pointer;
+}
+
+.reader-icon,
+.reader-tool {
+  width: 48px;
+  height: 48px;
 }
 
 .reader-bottom {
   position: fixed;
   inset: auto 0 0 0;
   z-index: 20;
-  padding: 76px 24px 42px;
+  padding: 46px 24px calc(18px + var(--safe-bottom));
   background: linear-gradient(to top, rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0));
 }
 
-.reader-actions {
-  display: flex;
-  justify-content: center;
-  gap: 34px;
+.reader-progress-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 72px;
+  gap: 18px;
+  align-items: center;
   margin-bottom: 24px;
+}
+
+.reader-page-button {
+  width: 72px;
+  height: 72px;
+  color: var(--color-accent-bright);
+  background: rgba(30, 30, 30, 0.86);
+}
+
+.reader-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(48px, 1fr));
+  gap: 18px;
+  justify-items: center;
 }
 
 .reader-tool {
   color: rgba(209, 197, 183, 0.66);
+  background: transparent;
 }
 
 .reader-tool.active {
   color: var(--color-accent);
 }
 
+.reader-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin: -8px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid rgba(153, 143, 131, 0.18);
+  border-radius: 16px;
+  color: rgba(209, 197, 183, 0.72);
+  background: rgba(18, 18, 18, 0.78);
+  font-size: 13px;
+}
+
+.reader-panel input {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
+.reader-panel strong {
+  color: var(--color-accent-bright);
+  font-weight: 400;
+}
+
+.setting-panel {
+  grid-template-columns: 1fr auto auto;
+}
+
+.setting-chip {
+  min-height: 34px;
+  border: 1px solid rgba(153, 143, 131, 0.28);
+  border-radius: 999px;
+  padding: 0 12px;
+  color: rgba(209, 197, 183, 0.66);
+  background: transparent;
+  font-size: 12px;
+}
+
+.setting-chip.active {
+  border-color: rgba(225, 194, 150, 0.7);
+  color: var(--color-accent-bright);
+  background: rgba(184, 155, 114, 0.16);
+}
+
+.reader-page-strip {
+  display: flex;
+  gap: 8px;
+  margin: -8px 0 18px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: none;
+}
+
+.reader-page-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.reader-page-chip {
+  flex: 0 0 auto;
+  min-width: 42px;
+  height: 34px;
+  border: 1px solid rgba(153, 143, 131, 0.28);
+  border-radius: 999px;
+  color: rgba(209, 197, 183, 0.66);
+  background: rgba(30, 30, 30, 0.68);
+  font-size: 13px;
+}
+
+.reader-page-chip.active {
+  border-color: rgba(225, 194, 150, 0.7);
+  color: var(--color-accent-bright);
+  background: rgba(184, 155, 114, 0.16);
+}
+
 .reader-progress {
   display: grid;
-  grid-template-columns: 34px 1fr 34px;
+  grid-template-columns: 32px 1fr 32px;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   color: rgba(209, 197, 183, 0.62);
+  font-size: 16px;
 }
 
 .reader-progress input {
   width: 100%;
   accent-color: var(--color-accent);
-}
-
-.progress-label {
-  margin-top: 12px;
-  color: rgba(209, 197, 183, 0.38);
-  text-align: center;
-  font-size: 11px;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
 }
 </style>
