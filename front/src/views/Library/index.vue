@@ -6,22 +6,26 @@
       <p class="page-subtitle">导入、下载和云盘同步的漫画都会放在这里。</p>
     </section>
 
+    <nav class="library-tabs" aria-label="书库视图">
+      <button
+        v-for="tab in tabItems"
+        :key="tab.id"
+        class="library-tab"
+        :class="{ active: activeTab === tab.id }"
+        type="button"
+        @click="activeTab = tab.id"
+      >
+        {{ tab.label }}
+      </button>
+    </nav>
+
     <section class="toolbar surface-card">
-      <input v-model="searchQuery" class="text-input" type="search" placeholder="搜索标题" aria-label="搜索标题" />
+      <input ref="searchInput" v-model="searchQuery" class="text-input" type="search" placeholder="搜索漫画标题" aria-label="搜索漫画标题" />
 
-      <div class="toolbar-row">
-        <select v-model="activeTab" class="select-input" aria-label="书库筛选">
-          <option value="all">全部</option>
-          <option value="favorite">收藏</option>
-          <option value="readLater">稍后看</option>
-          <option value="pinned">置顶</option>
-        </select>
-
-        <button class="primary-button import-button" type="button" @click="fileInput?.click()">
-          <Archive :size="18" />
-          导入
-        </button>
-      </div>
+      <button class="primary-button import-button" type="button" @click="fileInput?.click()">
+        <Archive :size="18" />
+        导入
+      </button>
 
       <input ref="fileInput" class="hidden-input" type="file" accept=".zip,.cbz,application/zip" @change="handleImport" />
     </section>
@@ -52,19 +56,42 @@
 <script setup lang="ts">
 import { useLibraryStore } from '@/stores/libraryStore'
 import { Archive, BookOpen } from 'lucide-vue-next'
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import MangaGrid from './components/MangaGrid.vue'
 
-type LibraryTab = 'all' | 'favorite' | 'readLater' | 'pinned'
+type LibraryTab = 'all' | 'favorite' | 'readLater' | 'download'
 
+const route = useRoute()
 const library = useLibraryStore()
 const fileInput = ref<HTMLInputElement | null>(null)
+const searchInput = ref<HTMLInputElement | null>(null)
 const searchQuery = ref('')
 const activeTab = ref<LibraryTab>('all')
 const message = ref('')
+const tabItems: Array<{ id: LibraryTab, label: string }> = [
+  { id: 'all', label: '全部' },
+  { id: 'favorite', label: '收藏' },
+  { id: 'readLater', label: '稍后看' },
+  { id: 'download', label: '下载' },
+]
 
 onMounted(() => {
   void library.load()
+  window.addEventListener('focus-library-search', focusSearchInput)
+  if (route.query.focusSearch) {
+    focusSearchInput()
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('focus-library-search', focusSearchInput)
+})
+
+watch(() => route.query.focusSearch, (value) => {
+  if (value) {
+    focusSearchInput()
+  }
 })
 
 const visibleMangas = computed(() => {
@@ -79,7 +106,7 @@ const visibleMangas = computed(() => {
       const shelf = library.getShelfState(manga.id)
       if (activeTab.value === 'favorite') return shelf.favorite
       if (activeTab.value === 'readLater') return shelf.readLater
-      if (activeTab.value === 'pinned') return shelf.pinned
+      if (activeTab.value === 'download') return manga.source === 'download'
       return true
     })
     .sort((left, right) => {
@@ -88,6 +115,12 @@ const visibleMangas = computed(() => {
       return rightPinned - leftPinned || right.updatedAt - left.updatedAt
     })
 })
+
+function focusSearchInput() {
+  void nextTick(() => {
+    searchInput.value?.focus()
+  })
+}
 
 async function handleImport(event: Event) {
   const input = event.target as HTMLInputElement
@@ -111,22 +144,71 @@ async function handleImport(event: Event) {
   margin-bottom: 22px;
 }
 
-.toolbar {
+.library-tabs {
   display: flex;
-  flex-direction: column;
-  gap: 14px;
+  gap: 20px;
+  margin: 0 -20px 18px;
+  overflow-x: auto;
+  padding: 0 20px 4px;
+  scrollbar-width: none;
+}
+
+.library-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.library-tab {
+  position: relative;
+  min-height: 44px;
+  flex: 0 0 auto;
+  border: 0;
+  padding: 0;
+  color: rgba(209, 197, 183, 0.56);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.library-tab::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--color-accent-bright);
+  content: "";
+  opacity: 0;
+  transform: scaleX(0.5);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.library-tab.active {
+  color: var(--color-accent-bright);
+}
+
+.library-tab.active::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
   margin-bottom: 26px;
   padding: 16px;
 }
 
-.toolbar-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 12px;
-}
-
 .import-button {
   min-width: 128px;
+}
+
+@media (max-width: 420px) {
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
 }
 
 .hidden-input {

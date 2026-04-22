@@ -13,7 +13,7 @@
       <p>{{ manga.imageCount }} 页 · {{ sourceLabel }}</p>
     </div>
 
-    <div class="card-actions" aria-label="Shelf actions">
+    <div class="card-actions" aria-label="书架操作">
       <button class="mini-action" :class="{ active: shelf.favorite }" type="button" aria-label="收藏" @click="$emit('favorite', manga.id)">
         <Bookmark :size="16" :fill="shelf.favorite ? 'currentColor' : 'none'" />
       </button>

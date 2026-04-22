@@ -1,5 +1,5 @@
 <template>
-  <nav class="bottom-nav" aria-label="Primary navigation">
+  <nav class="bottom-nav" aria-label="主导航">
     <RouterLink
       v-for="item in items"
       :key="item.path"
