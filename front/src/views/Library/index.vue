@@ -27,7 +27,7 @@
     >
       <Transition :name="contentTransitionName" mode="out-in">
         <div :key="activeTab" class="library-tab-panel">
-          <div v-if="library.loading" class="empty-state">正在加载书库...</div>
+          <div v-if="library.loading && library.mangas.length === 0" class="empty-state">正在加载书库...</div>
 
           <MangaGrid
             v-else-if="visibleMangas.length > 0"
@@ -56,34 +56,53 @@
 <script setup lang="ts">
 import { useLibraryStore } from '@/stores/libraryStore'
 import { BookOpen } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import MangaGrid from './components/MangaGrid.vue'
 
 type LibraryTab = 'all' | 'favorite' | 'readLater' | 'cloud'
 
+interface LibraryViewState {
+  activeTab: LibraryTab
+  scrollByTab: Record<LibraryTab, number>
+  restoreOnNextEntry: boolean
+}
+
+const LIBRARY_VIEW_STATE_KEY = 'comicr:library-view-state:v1'
 const library = useLibraryStore()
-const searchQuery = ref('')
-const activeTab = ref<LibraryTab>('all')
-const contentTransitionName = ref('library-slide-next')
-const touchStartX = ref(0)
-const touchStartY = ref(0)
-const pointerStartX = ref(0)
-const pointerStartY = ref(0)
-const pointerTracking = ref(false)
 const tabItems: Array<{ id: LibraryTab, label: string }> = [
   { id: 'all', label: '全部' },
   { id: 'favorite', label: '收藏' },
   { id: 'readLater', label: '稍后看' },
   { id: 'cloud', label: '云盘' },
 ]
+const initialViewState = loadLibraryViewState()
+const searchQuery = ref('')
+const activeTab = ref<LibraryTab>(initialViewState.activeTab)
+const scrollByTab = ref<Record<LibraryTab, number>>(initialViewState.scrollByTab)
+const contentTransitionName = ref('library-slide-next')
+const touchStartX = ref(0)
+const touchStartY = ref(0)
+const pointerStartX = ref(0)
+const pointerStartY = ref(0)
+const pointerTracking = ref(false)
 
 onMounted(() => {
-  void library.ensureLoaded()
+  void restoreLibraryView()
   window.addEventListener('app-search', handleAppSearch)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('app-search', handleAppSearch)
+})
+
+onBeforeRouteLeave((to) => {
+  if (to.name === 'manga-detail' || to.name === 'reader') {
+    saveCurrentViewState()
+    return
+  }
+
+  clearViewState()
 })
 
 const visibleMangas = computed(() => {
@@ -113,10 +132,14 @@ function handleAppSearch(event: Event) {
 }
 
 function setActiveTab(tab: LibraryTab) {
+  if (tab === activeTab.value) return
+  captureCurrentScroll()
+
   const currentIndex = tabItems.findIndex((item) => item.id === activeTab.value)
   const nextIndex = tabItems.findIndex((item) => item.id === tab)
   contentTransitionName.value = nextIndex >= currentIndex ? 'library-slide-next' : 'library-slide-prev'
   activeTab.value = tab
+  void nextTick(() => restoreScrollForTab(tab))
 }
 
 function switchTabByOffset(offset: number) {
@@ -159,6 +182,89 @@ function handlePointerEnd(event: PointerEvent) {
 
 function handlePointerCancel() {
   pointerTracking.value = false
+}
+
+function emptyScrollByTab(): Record<LibraryTab, number> {
+  return {
+    all: 0,
+    favorite: 0,
+    readLater: 0,
+    cloud: 0,
+  }
+}
+
+function isLibraryTab(value: unknown): value is LibraryTab {
+  return tabItems.some((item) => item.id === value)
+}
+
+function loadLibraryViewState(): LibraryViewState {
+  try {
+    const rawValue = sessionStorage.getItem(LIBRARY_VIEW_STATE_KEY)
+    const parsed = rawValue ? JSON.parse(rawValue) as Partial<LibraryViewState> : {}
+    if (!parsed.restoreOnNextEntry) {
+      throw new Error('No restorable library state')
+    }
+
+    const scrollState = {
+      ...emptyScrollByTab(),
+      ...(parsed.scrollByTab ?? {}),
+    }
+    return {
+      activeTab: isLibraryTab(parsed.activeTab) ? parsed.activeTab : 'all',
+      scrollByTab: {
+        all: Number(scrollState.all) || 0,
+        favorite: Number(scrollState.favorite) || 0,
+        readLater: Number(scrollState.readLater) || 0,
+        cloud: Number(scrollState.cloud) || 0,
+      },
+      restoreOnNextEntry: true,
+    }
+  } catch {
+    return {
+      activeTab: 'all',
+      scrollByTab: emptyScrollByTab(),
+      restoreOnNextEntry: false,
+    }
+  }
+}
+
+function persistViewState() {
+  sessionStorage.setItem(LIBRARY_VIEW_STATE_KEY, JSON.stringify({
+    activeTab: activeTab.value,
+    scrollByTab: scrollByTab.value,
+    restoreOnNextEntry: true,
+  }))
+}
+
+function clearViewState() {
+  sessionStorage.removeItem(LIBRARY_VIEW_STATE_KEY)
+}
+
+function captureCurrentScroll() {
+  scrollByTab.value = {
+    ...scrollByTab.value,
+    [activeTab.value]: window.scrollY,
+  }
+}
+
+function saveCurrentViewState() {
+  captureCurrentScroll()
+  persistViewState()
+}
+
+function restoreScrollForTab(tab = activeTab.value) {
+  const top = scrollByTab.value[tab] ?? 0
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top, behavior: 'auto' })
+    })
+  })
+}
+
+async function restoreLibraryView() {
+  await library.ensureLoaded()
+  await nextTick()
+  restoreScrollForTab()
 }
 </script>
 
