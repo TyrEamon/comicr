@@ -1,4 +1,5 @@
 import { deleteRecord, getAllRecords, getRecord, putRecord } from './db'
+import { cloudThreadSettings } from './cloudThreadSettings'
 import type {
   CloudCacheSettings,
   CloudCacheStats,
@@ -801,20 +802,18 @@ export const cloudService = {
 
   async getWebDavMangaItems(path = '', onProgress?: (progress: WebDavMangaIndexProgress) => void): Promise<CloudMangaItem[]> {
     const folders = await this.listFiles(WEBDAV_PROVIDER_ID, path)
-    const mangaItems: CloudMangaItem[] = []
+    const mangaItems: Array<CloudMangaItem | null> = new Array(folders.length).fill(null)
+    const concurrency = Math.min(cloudThreadSettings.getSettings().threadCount, Math.max(1, folders.length))
+    let nextIndex = 0
+    let completed = 0
 
-    for (const [index, folder] of folders.entries()) {
+    const loadPreview = async (index: number) => {
+      const folder = folders[index]
       const cachedPreview = getPreviewRecord(folder.path)
       let preview = {
         imageCount: cachedPreview?.imageCount ?? 0,
         coverUrl: await getCachedCoverUrl(folder.path),
       }
-
-      onProgress?.({
-        current: index + 1,
-        total: folders.length,
-        title: folder.name,
-      })
 
       try {
         preview = await this.getWebDavMangaPreview(folder.path)
@@ -822,7 +821,7 @@ export const cloudService = {
         // 某个封面或页数读取失败时，仍然先把文件夹显示出来。
       }
 
-      mangaItems.push({
+      mangaItems[index] = {
         id: folder.path || '/',
         title: folder.name,
         path: folder.path,
@@ -830,10 +829,27 @@ export const cloudService = {
         sizeBytes: folder.sizeBytes,
         imageCount: preview.imageCount,
         coverUrl: preview.coverUrl,
+      }
+
+      completed += 1
+      onProgress?.({
+        current: completed,
+        total: folders.length,
+        title: folder.name,
       })
     }
 
-    return mangaItems
+    const runWorker = async () => {
+      while (nextIndex < folders.length) {
+        const index = nextIndex
+        nextIndex += 1
+        await loadPreview(index)
+      }
+    }
+
+    await Promise.all(Array.from({ length: concurrency }, () => runWorker()))
+
+    return mangaItems.filter((item): item is CloudMangaItem => Boolean(item))
   },
 
   async refreshWebDavMangaIndex(path = '', onProgress?: (progress: WebDavMangaIndexProgress) => void) {

@@ -59,7 +59,7 @@
       <div class="setting-card-header">
         <div>
           <h2>下载位置</h2>
-          <p>{{ downloadTargetLabel }} · {{ downloadConcurrency }} 线程</p>
+          <p>{{ downloadTargetLabel }} · 云盘 {{ cloudThreadCount }} 线程</p>
         </div>
         <span class="status-pill">{{ hasCustomDownloadTarget ? '自定义' : '默认' }}</span>
       </div>
@@ -77,17 +77,17 @@
 
       <div class="download-concurrency">
         <div>
-          <label class="input-label">下载线程数</label>
-          <p>只影响单本漫画内部同时下载的图片数量</p>
+          <label class="input-label">云盘线程数</label>
+          <p>影响云盘封面读取和单本漫画下载速度</p>
         </div>
-        <div class="concurrency-options" role="group" aria-label="下载线程数">
+        <div class="concurrency-options" role="group" aria-label="云盘线程数">
           <button
-            v-for="value in downloadConcurrencyOptions"
+            v-for="value in cloudThreadOptions"
             :key="value"
             class="setting-chip"
-            :class="{ active: downloadConcurrency === value }"
+            :class="{ active: cloudThreadCount === value }"
             type="button"
-            @click="setDownloadConcurrency(value)"
+            @click="setCloudThreadCount(value)"
           >
             {{ value }}
           </button>
@@ -149,8 +149,8 @@
 
 <script setup lang="ts">
 import { archiveService } from '@/services/archiveService'
-import { cloudDownloadService } from '@/services/cloudDownloadService'
 import { cloudService } from '@/services/cloudService'
+import { cloudThreadSettings } from '@/services/cloudThreadSettings'
 import { downloadTargetService } from '@/services/downloadTargetService'
 import { localFolderService } from '@/services/localFolderService'
 import { useLibraryStore } from '@/stores/libraryStore'
@@ -166,8 +166,8 @@ const busy = ref(false)
 const importedManga = ref<{ id: string; title: string } | null>(null)
 const cacheStats = ref({ usedBytes: 0, pageBytes: 0, coverBytes: 0, pageCount: 0, coverCount: 0 })
 const cacheLimitMb = ref(Math.round(cloudService.getCloudCacheSettings().maxBytes / 1024 / 1024))
-const downloadConcurrency = ref(cloudDownloadService.getDownloadSettings().concurrency)
-const downloadConcurrencyOptions = [1, 2, 3]
+const cloudThreadCount = ref(cloudThreadSettings.getSettings().threadCount)
+const cloudThreadOptions = [1, 2, 3, 4]
 const downloadTargetVersion = ref(0)
 const downloadTargetAvailable = downloadTargetService.isAvailable()
 const downloadTargetLabel = computed(() => {
@@ -352,10 +352,10 @@ function resetDownloadTarget() {
   message.value = '下载位置已恢复为 Download/Comicr'
 }
 
-function setDownloadConcurrency(value: number) {
-  const settings = cloudDownloadService.updateDownloadSettings({ concurrency: value })
-  downloadConcurrency.value = settings.concurrency
-  message.value = `下载线程数已设置为 ${settings.concurrency}`
+function setCloudThreadCount(value: number) {
+  const settings = cloudThreadSettings.updateSettings({ threadCount: value })
+  cloudThreadCount.value = settings.threadCount
+  message.value = `云盘线程数已设置为 ${settings.threadCount}`
 }
 
 async function saveCacheLimit() {

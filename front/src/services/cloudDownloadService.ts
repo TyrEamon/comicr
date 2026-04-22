@@ -1,20 +1,14 @@
 import { cloudService } from './cloudService'
+import { cloudThreadSettings } from './cloudThreadSettings'
 import { downloadTargetService } from './downloadTargetService'
 import { libraryService } from './libraryService'
 
 const WEBDAV_DOWNLOADED_KEY = 'comics-app:webdav-downloaded:v1'
-const DOWNLOAD_SETTINGS_KEY = 'comics-app:download-settings:v1'
-const DEFAULT_DOWNLOAD_CONCURRENCY = 1
-const MAX_DOWNLOAD_CONCURRENCY = 3
 
 export interface CloudDownloadProgress {
   title: string
   current: number
   total: number
-}
-
-export interface DownloadSettings {
-  concurrency: number
 }
 
 interface WebDavDownloadOptions {
@@ -38,49 +32,9 @@ function saveDownloadedRecords(records: Record<string, { mangaId: string; update
   localStorage.setItem(WEBDAV_DOWNLOADED_KEY, JSON.stringify(records))
 }
 
-function clampConcurrency(value: unknown) {
-  const numberValue = Number(value)
-  if (!Number.isFinite(numberValue)) return DEFAULT_DOWNLOAD_CONCURRENCY
-  return Math.min(MAX_DOWNLOAD_CONCURRENCY, Math.max(1, Math.round(numberValue)))
-}
-
-function loadDownloadSettings(): DownloadSettings {
-  try {
-    const rawValue = localStorage.getItem(DOWNLOAD_SETTINGS_KEY)
-    const parsed = rawValue ? JSON.parse(rawValue) as Partial<DownloadSettings> : {}
-    return {
-      concurrency: clampConcurrency(parsed.concurrency),
-    }
-  } catch {
-    return {
-      concurrency: DEFAULT_DOWNLOAD_CONCURRENCY,
-    }
-  }
-}
-
-function saveDownloadSettings(settings: DownloadSettings) {
-  localStorage.setItem(DOWNLOAD_SETTINGS_KEY, JSON.stringify({
-    concurrency: clampConcurrency(settings.concurrency),
-  }))
-}
-
 export const cloudDownloadService = {
   isWebDavDownloaded(path: string) {
     return Boolean(loadDownloadedRecords()[normalizePath(path)])
-  },
-
-  getDownloadSettings() {
-    return loadDownloadSettings()
-  },
-
-  updateDownloadSettings(settings: Partial<DownloadSettings>) {
-    const nextSettings = {
-      ...loadDownloadSettings(),
-      ...settings,
-    }
-    nextSettings.concurrency = clampConcurrency(nextSettings.concurrency)
-    saveDownloadSettings(nextSettings)
-    return nextSettings
   },
 
   forgetDownloadedManga(mangaId: string) {
@@ -99,7 +53,7 @@ export const cloudDownloadService = {
     const normalizedPath = normalizePath(path)
     const remoteManga = await cloudService.getWebDavDownloadItems(path)
     const downloadedImages: Array<{ name: string; type?: string; uri?: string; blob?: Blob } | null> = new Array(remoteManga.files.length).fill(null)
-    const concurrency = Math.min(loadDownloadSettings().concurrency, Math.max(1, remoteManga.files.length))
+    const concurrency = Math.min(cloudThreadSettings.getSettings().threadCount, Math.max(1, remoteManga.files.length))
     let outputPath = downloadTargetService.getTargetLabel()
     let nextIndex = 0
     let completed = 0
