@@ -419,7 +419,7 @@ async function scrollToCurrentIndex(behavior: ScrollBehavior) {
   if (!container || !frame) return
 
   container.scrollTo({
-    top: Math.max(frame.offsetTop - 12, 0),
+    top: frame.offsetTop,
     behavior,
   })
 }
@@ -500,7 +500,7 @@ function handleContinuousScroll() {
 .continuous-stage {
   overflow-y: auto;
   overscroll-behavior-y: contain;
-  padding: 12px 0 calc(120px + var(--safe-bottom));
+  padding: 0 0 var(--safe-bottom);
   scrollbar-width: none;
 }
 
@@ -509,11 +509,10 @@ function handleContinuousScroll() {
 }
 
 .continuous-frame {
-  display: flex;
-  min-height: 100dvh;
-  align-items: center;
-  justify-content: center;
-  padding: 0 0 12px;
+  display: block;
+  min-height: 0;
+  padding: 0;
+  line-height: 0;
 }
 
 .continuous-frame.fit-width-frame {
@@ -533,7 +532,10 @@ function handleContinuousScroll() {
 }
 
 .continuous-image {
-  max-height: calc(100dvh - 32px);
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: none;
 }
 
 .reader-top {
