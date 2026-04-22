@@ -26,18 +26,17 @@
           <Archive :size="18" />
           压缩包
         </button>
-        <button class="primary-button import-button" type="button" :disabled="busy" @click="folderInput?.click()">
+        <button class="ghost-button import-button planned" type="button" :disabled="busy" @click="handleFolderImportUnsupported">
           <FolderOpen :size="18" />
           文件夹
         </button>
-        <button class="ghost-button import-button" type="button" :disabled="busy" @click="imageInput?.click()">
+        <button class="primary-button import-button" type="button" :disabled="busy" @click="imageInput?.click()">
           <Images :size="18" />
           图片
         </button>
       </div>
 
       <input ref="archiveInput" class="hidden-input" type="file" accept=".zip,.cbz,application/zip" @change="handleArchiveImport" />
-      <input ref="folderInput" class="hidden-input" type="file" accept="image/*" multiple webkitdirectory directory @change="handleImageFilesImport($event, '文件夹')" />
       <input ref="imageInput" class="hidden-input" type="file" accept="image/*" multiple @change="handleImageFilesImport($event, '图片')" />
 
       <div v-if="message" class="import-message">
@@ -82,7 +81,6 @@ import { onMounted, ref } from 'vue'
 
 const library = useLibraryStore()
 const archiveInput = ref<HTMLInputElement | null>(null)
-const folderInput = ref<HTMLInputElement | null>(null)
 const imageInput = ref<HTMLInputElement | null>(null)
 const importTitle = ref('')
 const message = ref('')
@@ -138,6 +136,11 @@ async function handleImageFilesImport(event: Event, label: string) {
     input.value = ''
   }
 }
+
+function handleFolderImportUnsupported() {
+  importedManga.value = null
+  message.value = '文件夹导入需要 Android 原生目录授权。当前先用图片多选，或把文件夹压成 ZIP / CBZ。'
+}
 </script>
 
 <style scoped>
@@ -192,6 +195,10 @@ async function handleImageFilesImport(event: Event, label: string) {
 .import-button:disabled {
   cursor: wait;
   opacity: 0.58;
+}
+
+.import-button.planned {
+  color: rgba(209, 197, 183, 0.5);
 }
 
 .hidden-input {
