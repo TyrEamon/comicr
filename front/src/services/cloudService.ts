@@ -571,6 +571,13 @@ async function cachePageBlob(mangaPath: string, file: WebDavImageFile, blob: Blo
   return nextUrl
 }
 
+function releasePageObjectUrl(mangaPath: string, filePath: string) {
+  const cacheId = webDavPageCacheId(mangaPath, filePath)
+  const cachedUrl = pageObjectUrls.get(cacheId)
+  if (cachedUrl) URL.revokeObjectURL(cachedUrl)
+  pageObjectUrls.delete(cacheId)
+}
+
 async function enforceCloudCacheLimit() {
   const settings = loadCloudCacheSettings()
   const records = (await getAllRecords<CloudPageCacheRecord>('cloudCache')).filter(isPageCacheRecord)
@@ -904,6 +911,27 @@ export const cloudService = {
     const cachedUrl = await getCachedPageUrl(mangaPath, image.remotePath)
     if (cachedUrl) return cachedUrl
 
+    const file: WebDavImageFile = {
+      name: image.name,
+      path: image.remotePath,
+      isDir: false,
+      sizeBytes: 0,
+      updatedAt: new Date().toISOString(),
+      type: image.type,
+    }
+    const blob = await fetchBlobByPath(file.path)
+    return cachePageBlob(mangaPath, file, blob, image.index)
+  },
+
+  releaseWebDavImageAssetSrc(mangaPath: string, image: ImageAsset) {
+    if (!image.remotePath) return
+    releasePageObjectUrl(mangaPath, image.remotePath)
+  },
+
+  async reloadWebDavImageAssetSrc(mangaPath: string, image: ImageAsset) {
+    if (!image.remotePath) return ''
+
+    releasePageObjectUrl(mangaPath, image.remotePath)
     const file: WebDavImageFile = {
       name: image.name,
       path: image.remotePath,

@@ -25,6 +25,7 @@
           :alt="currentImage.name"
           :style="imageStyle"
           @click.stop="handleGalleryTap"
+          @error="handleImageError(currentIndex)"
         />
         <div v-else class="reader-image-placeholder" @click.stop="handleGalleryTap">正在加载当前页...</div>
       </div>
@@ -51,6 +52,7 @@
             :alt="image.name"
             :style="imageStyle"
             @click.stop="toggleControls()"
+            @error="handleImageError(index)"
           />
           <div v-else class="reader-image-placeholder continuous-placeholder">正在加载第 {{ index + 1 }} 页...</div>
         </div>
@@ -303,9 +305,16 @@ onUnmounted(() => {
     window.cancelAnimationFrame(scrollSyncFrame)
   }
 
-  for (const image of images.value) {
-    if (image.src.startsWith('blob:')) {
-      URL.revokeObjectURL(image.src)
+  if (isCloudReader.value) {
+    const mangaPath = cloudService.pathFromReaderId(mangaId.value)
+    for (const image of images.value) {
+      cloudService.releaseWebDavImageAssetSrc(mangaPath, image)
+    }
+  } else {
+    for (const image of images.value) {
+      if (image.src.startsWith('blob:')) {
+        URL.revokeObjectURL(image.src)
+      }
     }
   }
 })
@@ -400,18 +409,23 @@ function togglePageList() {
 
 function reloadCurrentPage() {
   const image = images.value[currentIndex.value]
-  if (image?.src.startsWith('blob:')) {
-    URL.revokeObjectURL(image.src)
-  }
+  if (!image) return
 
-  if (image) {
+  if (isCloudReader.value) {
     images.value[currentIndex.value] = {
       ...image,
       src: '',
     }
+    void reloadCloudImage(currentIndex.value)
+  } else if (image.src.startsWith('blob:')) {
+    URL.revokeObjectURL(image.src)
+    images.value[currentIndex.value] = {
+      ...image,
+      src: '',
+    }
+    void ensureImagesAround(currentIndex.value)
   }
 
-  void ensureImagesAround(currentIndex.value)
   controlsVisible.value = true
   brightnessVisible.value = false
   pageListVisible.value = false
@@ -508,6 +522,39 @@ async function ensureImageLoaded(index: number) {
     ...image,
     src,
   }
+}
+
+async function reloadCloudImage(index: number) {
+  const image = images.value[index]
+  if (!image || !isCloudReader.value) return
+
+  try {
+    const src = await cloudService.reloadWebDavImageAssetSrc(cloudService.pathFromReaderId(mangaId.value), image)
+    if (!src) return
+    images.value[index] = {
+      ...image,
+      src,
+    }
+  } catch {
+    await ensureImageLoaded(index)
+  }
+}
+
+async function handleImageError(index: number) {
+  const image = images.value[index]
+  if (!image) return
+
+  if (isCloudReader.value) {
+    cloudService.releaseWebDavImageAssetSrc(cloudService.pathFromReaderId(mangaId.value), image)
+  } else if (image.src.startsWith('blob:')) {
+    URL.revokeObjectURL(image.src)
+  }
+
+  images.value[index] = {
+    ...image,
+    src: '',
+  }
+  await ensureImageLoaded(index)
 }
 
 function handleProgressInput(event: Event) {
