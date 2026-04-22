@@ -5,5 +5,9 @@ dist/
 *.tsbuildinfo
 front/node_modules/
 front/dist/
-front/android/
+front/android/.gradle/
+front/android/app/build/
+front/android/build/
+front/android/capacitor-cordova-android-plugins/build/
+front/android/app/src/main/assets/public/
 front/.vite/

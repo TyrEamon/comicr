@@ -2,7 +2,6 @@
   <div class="page library-page">
     <section class="library-hero">
       <p class="label-caps">书库</p>
-      <h1 class="page-title">收藏作品</h1>
     </section>
 
     <nav class="library-tabs" aria-label="书库视图">

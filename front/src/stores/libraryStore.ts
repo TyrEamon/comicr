@@ -40,6 +40,12 @@ export const useLibraryStore = defineStore('library', () => {
     return manga
   }
 
+  async function importImageBlobs(title: string, images: Array<{ name: string; type?: string; blob: Blob }>) {
+    const manga = await libraryService.importImageBlobs(title, images, 'archive')
+    await load()
+    return manga
+  }
+
   async function deleteManga(mangaId: string) {
     await libraryService.deleteManga(mangaId)
     await load()
@@ -76,6 +82,7 @@ export const useLibraryStore = defineStore('library', () => {
     load,
     importArchive,
     importImageFiles,
+    importImageBlobs,
     deleteManga,
     getShelfState,
     toggleFavorite,

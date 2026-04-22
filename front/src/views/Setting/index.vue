@@ -26,11 +26,11 @@
           <Archive :size="18" />
           压缩包
         </button>
-        <button class="ghost-button import-button planned" type="button" :disabled="busy" @click="handleFolderImportUnsupported">
+        <button class="primary-button import-button" type="button" :disabled="busy" @click="handleFolderImport">
           <FolderOpen :size="18" />
           文件夹
         </button>
-        <button class="primary-button import-button" type="button" :disabled="busy" @click="imageInput?.click()">
+        <button class="ghost-button import-button" type="button" :disabled="busy" @click="imageInput?.click()">
           <Images :size="18" />
           图片
         </button>
@@ -75,6 +75,7 @@
 </template>
 
 <script setup lang="ts">
+import { localFolderService } from '@/services/localFolderService'
 import { useLibraryStore } from '@/stores/libraryStore'
 import { Archive, FolderOpen, Images } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
@@ -137,9 +138,21 @@ async function handleImageFilesImport(event: Event, label: string) {
   }
 }
 
-function handleFolderImportUnsupported() {
+async function handleFolderImport() {
+  busy.value = true
   importedManga.value = null
-  message.value = '文件夹导入需要 Android 原生目录授权。当前先用图片多选，或把文件夹压成 ZIP / CBZ。'
+  message.value = '正在申请文件夹授权...'
+  try {
+    const folder = await localFolderService.pickFolder()
+    const manga = await library.importImageBlobs(requestedTitle() || folder.title, folder.images)
+    importedManga.value = { id: manga.id, title: manga.title }
+    message.value = `已导入 ${manga.title}（${manga.imageCount} 页）`
+    importTitle.value = ''
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '文件夹导入失败'
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -195,10 +208,6 @@ function handleFolderImportUnsupported() {
 .import-button:disabled {
   cursor: wait;
   opacity: 0.58;
-}
-
-.import-button.planned {
-  color: rgba(209, 197, 183, 0.5);
 }
 
 .hidden-input {
