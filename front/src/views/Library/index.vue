@@ -18,10 +18,6 @@
       </button>
     </nav>
 
-    <section class="toolbar surface-card">
-      <input ref="searchInput" v-model="searchQuery" class="text-input" type="search" placeholder="搜索漫画标题" aria-label="搜索漫画标题" />
-    </section>
-
     <div v-if="library.loading" class="empty-state">正在加载书库...</div>
 
     <MangaGrid
@@ -48,15 +44,12 @@
 <script setup lang="ts">
 import { useLibraryStore } from '@/stores/libraryStore'
 import { BookOpen } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import MangaGrid from './components/MangaGrid.vue'
 
 type LibraryTab = 'all' | 'favorite' | 'readLater' | 'download'
 
-const route = useRoute()
 const library = useLibraryStore()
-const searchInput = ref<HTMLInputElement | null>(null)
 const searchQuery = ref('')
 const activeTab = ref<LibraryTab>('all')
 const tabItems: Array<{ id: LibraryTab, label: string }> = [
@@ -68,20 +61,11 @@ const tabItems: Array<{ id: LibraryTab, label: string }> = [
 
 onMounted(() => {
   void library.load()
-  window.addEventListener('focus-library-search', focusSearchInput)
-  if (route.query.focusSearch) {
-    focusSearchInput()
-  }
+  window.addEventListener('app-search', handleAppSearch)
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('focus-library-search', focusSearchInput)
-})
-
-watch(() => route.query.focusSearch, (value) => {
-  if (value) {
-    focusSearchInput()
-  }
+  window.removeEventListener('app-search', handleAppSearch)
 })
 
 const visibleMangas = computed(() => {
@@ -106,10 +90,8 @@ const visibleMangas = computed(() => {
     })
 })
 
-function focusSearchInput() {
-  void nextTick(() => {
-    searchInput.value?.focus()
-  })
+function handleAppSearch(event: Event) {
+  searchQuery.value = String((event as CustomEvent<string>).detail ?? '')
 }
 </script>
 
@@ -165,14 +147,6 @@ function focusSearchInput() {
 .library-tab.active::after {
   opacity: 1;
   transform: scaleX(1);
-}
-
-.toolbar {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-  margin-bottom: 26px;
-  padding: 16px;
 }
 
 .empty-state {

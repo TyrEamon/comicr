@@ -1,6 +1,17 @@
 <template>
   <div class="app-shell" :class="{ fullscreen }">
-    <MobileTopBar v-if="!fullscreen" :title="title" @menu="menuOpen = true" @search="handleSearch" />
+    <MobileTopBar v-if="!fullscreen" :title="title" @menu="openMenu" @search="handleSearch" />
+    <div v-if="searchOpen" class="floating-search" @click.stop>
+      <input
+        ref="searchInput"
+        v-model="searchQuery"
+        class="text-input"
+        type="search"
+        :placeholder="`搜索${title}`"
+        aria-label="搜索"
+        @input="emitSearch"
+      />
+    </div>
     <main class="app-content" :class="{ 'with-bottom-nav': showBottomNav }">
       <slot />
     </main>
@@ -30,14 +41,16 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { BookOpen, Cloud, Compass, Download, Settings, X } from 'lucide-vue-next'
 import MobileBottomNav from './MobileBottomNav.vue'
 import MobileTopBar from './MobileTopBar.vue'
 
 const route = useRoute()
-const router = useRouter()
 const menuOpen = ref(false)
+const searchOpen = ref(false)
+const searchInput = ref<HTMLInputElement | null>(null)
+const searchQuery = ref('')
 const fullscreen = computed(() => Boolean(route.meta.fullscreen))
 const showBottomNav = computed(() => !fullscreen.value && !route.meta.hideBottomNav)
 const title = computed(() => String(route.meta.title ?? '书库'))
@@ -52,19 +65,50 @@ const menuItems = [
 
 watch(() => route.fullPath, () => {
   menuOpen.value = false
+  searchOpen.value = false
+  searchQuery.value = ''
+  emitSearch()
 })
 
 async function handleSearch() {
-  if (route.name !== 'library') {
-    await router.push({ name: 'library', query: { focusSearch: '1' } })
+  if (searchOpen.value) {
+    searchOpen.value = false
+    searchQuery.value = ''
+    emitSearch()
+    return
   }
 
+  searchOpen.value = true
   await nextTick()
-  window.dispatchEvent(new CustomEvent('focus-library-search'))
+  searchInput.value?.focus()
+  emitSearch()
+}
+
+function openMenu() {
+  searchOpen.value = false
+  menuOpen.value = true
+}
+
+function emitSearch() {
+  window.dispatchEvent(new CustomEvent('app-search', { detail: searchQuery.value }))
 }
 </script>
 
 <style scoped>
+.floating-search {
+  position: fixed;
+  top: calc(var(--top-bar-height) + 8px);
+  right: 14px;
+  left: 14px;
+  z-index: 50;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  background: rgba(28, 27, 27, 0.96);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(18px);
+}
+
 .menu-backdrop {
   position: fixed;
   inset: 0;
