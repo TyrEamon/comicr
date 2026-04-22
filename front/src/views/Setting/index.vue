@@ -2,7 +2,6 @@
   <div class="page settings-page">
     <p class="label-caps">设置</p>
     <h1 class="page-title">设置</h1>
-    <p class="page-subtitle">漫画库、阅读、存储、构建。</p>
 
     <section class="surface-card setting-card library-card">
       <div class="setting-card-header">

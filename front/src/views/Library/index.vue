@@ -3,7 +3,6 @@
     <section class="library-hero">
       <p class="label-caps">书库</p>
       <h1 class="page-title">收藏作品</h1>
-      <p class="page-subtitle">导入、下载和云盘同步的漫画都会放在这里。</p>
     </section>
 
     <nav class="library-tabs" aria-label="书库视图">

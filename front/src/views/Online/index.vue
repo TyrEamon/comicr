@@ -2,9 +2,6 @@
   <div class="page">
     <p class="label-caps">发现</p>
     <h1 class="page-title">在线源</h1>
-    <p class="page-subtitle">
-      在线源会放在本地阅读器和 APK 构建稳定之后实现。这里已经预留 service 结构，后续会把 PC 端解析逻辑移植成 TypeScript 版本。
-    </p>
 
     <section class="surface-card placeholder">
       <Compass :size="34" />

@@ -243,10 +243,10 @@ function setFitMode(mode: 'contain' | 'width') {
   inset: 0 0 auto 0;
   z-index: 20;
   display: flex;
-  height: 72px;
+  height: var(--top-bar-height);
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
+  padding: var(--safe-top) 20px 0;
   background: linear-gradient(to bottom, rgba(15, 15, 15, 0.9), rgba(15, 15, 15, 0));
 }
 

@@ -5,7 +5,6 @@
       <div class="storage-row">
         <div>
           <h1 class="page-title">总存储</h1>
-          <p class="page-subtitle">先用本地导入打通链路，下一步接 WebDAV。</p>
         </div>
         <strong>{{ library.count }} 本</strong>
       </div>

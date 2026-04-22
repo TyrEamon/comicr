@@ -5,7 +5,6 @@
     </button>
 
     <div class="top-title">
-      <span class="brand">漫画云读</span>
       <span class="section">{{ title }}</span>
     </div>
 

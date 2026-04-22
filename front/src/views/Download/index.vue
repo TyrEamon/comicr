@@ -3,7 +3,6 @@
     <section class="download-hero">
       <p class="label-caps">下载</p>
       <h1 class="page-title">下载任务</h1>
-      <p class="page-subtitle">粘贴图片直链或支持的页面链接。下载完成后会自动加入书库。</p>
     </section>
 
     <section class="download-box surface-card">
