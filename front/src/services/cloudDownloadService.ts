@@ -36,6 +36,18 @@ export const cloudDownloadService = {
     return Boolean(loadDownloadedRecords()[normalizePath(path)])
   },
 
+  forgetDownloadedManga(mangaId: string) {
+    const records = loadDownloadedRecords()
+    let changed = false
+    for (const [path, record] of Object.entries(records)) {
+      if (record.mangaId === mangaId) {
+        delete records[path]
+        changed = true
+      }
+    }
+    if (changed) saveDownloadedRecords(records)
+  },
+
   async downloadWebDavManga(path: string, onProgress?: (progress: CloudDownloadProgress) => void, options?: WebDavDownloadOptions) {
     const normalizedPath = normalizePath(path)
     const remoteManga = await cloudService.getWebDavDownloadItems(path)

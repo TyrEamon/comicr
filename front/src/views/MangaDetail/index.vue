@@ -6,6 +6,9 @@
       <button class="back-button" type="button" aria-label="返回" @click="router.back()">
         <ArrowLeft :size="24" />
       </button>
+      <button v-if="manga" class="delete-button" type="button" aria-label="删除" @click="openDeleteConfirm">
+        <Trash2 :size="22" />
+      </button>
       <div class="hero-copy">
         <span class="genre-pill">{{ sourcePillLabel }}</span>
         <h1>{{ manga?.title || '正在加载' }}</h1>
@@ -70,6 +73,33 @@
         </button>
       </section>
     </main>
+
+    <Transition name="sheet-fade">
+      <div v-if="showDeleteConfirm" class="delete-overlay" @click.self="closeDeleteConfirm">
+        <section class="delete-sheet" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+          <p class="label-caps">删除</p>
+          <h2 id="delete-title">移除这本漫画？</h2>
+          <p>{{ deleteDescription }}</p>
+          <p v-if="deleteMessage" class="delete-message">{{ deleteMessage }}</p>
+
+          <div class="delete-actions">
+            <button class="ghost-button" type="button" :disabled="deleteBusy" @click="closeDeleteConfirm">取消</button>
+            <button
+              v-if="canDeleteDownloadedFiles"
+              class="ghost-button"
+              type="button"
+              :disabled="deleteBusy"
+              @click="deleteCurrentManga(false)"
+            >
+              仅从书架移除
+            </button>
+            <button class="ghost-button danger-button" type="button" :disabled="deleteBusy" @click="deleteCurrentManga(canDeleteDownloadedFiles)">
+              {{ canDeleteDownloadedFiles ? '删除文件并移除' : '从书架移除' }}
+            </button>
+          </div>
+        </section>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -81,7 +111,7 @@ import { downloadService } from '@/services/downloadService'
 import { libraryService } from '@/services/libraryService'
 import type { MangaItem } from '@/services/types'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { ArrowLeft, BookOpen, Bookmark, Check, ChevronRight, Clock3, Download as DownloadIcon } from 'lucide-vue-next'
+import { ArrowLeft, BookOpen, Bookmark, Check, ChevronRight, Clock3, Download as DownloadIcon, Trash2 } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -94,6 +124,9 @@ const downloadBusy = ref(false)
 const downloadMessage = ref('')
 const cloudDownloaded = ref(false)
 const cloudDownloadQueued = ref(false)
+const showDeleteConfirm = ref(false)
+const deleteBusy = ref(false)
+const deleteMessage = ref('')
 
 const mangaId = computed(() => String(route.params.id))
 const shelf = computed(() => library.getShelfState(mangaId.value))
@@ -108,6 +141,21 @@ const downloadButtonLabel = computed(() => {
   return downloadAvailable.value ? '已下载' : '下载'
 })
 const sourcePillLabel = computed(() => isCloudManga.value ? '云盘 · WebDAV' : '本地 · 手机端')
+const canDeleteDownloadedFiles = computed(() => manga.value?.source === 'download')
+const deleteDescription = computed(() => {
+  switch (manga.value?.source) {
+    case 'download':
+      return '这本漫画是 Comicr 下载保存的。你可以只从书架移除，也可以同时删除下载出来的图片文件。'
+    case 'archive':
+      return '只会删除书架索引、阅读进度和收藏状态，不会删除手机里的原压缩包。'
+    case 'folder':
+      return '只会删除书架索引、阅读进度和收藏状态，不会删除原文件夹里的图片。'
+    case 'cloud':
+      return '只会从当前云盘书架索引移除，不会删除 WebDAV 里的文件。刷新云盘列表后可能会重新出现。'
+    default:
+      return '只会从书架移除这本漫画和本机记录。'
+  }
+})
 
 const progressPercent = computed(() => {
   const value = progress.value?.progressPercent ?? 0
@@ -162,6 +210,37 @@ function toggleFavorite() {
 
 function toggleReadLater() {
   library.toggleReadLater(mangaId.value)
+}
+
+function openDeleteConfirm() {
+  deleteMessage.value = ''
+  showDeleteConfirm.value = true
+}
+
+function closeDeleteConfirm() {
+  if (deleteBusy.value) return
+  showDeleteConfirm.value = false
+}
+
+async function deleteCurrentManga(deleteFiles: boolean) {
+  if (!manga.value || deleteBusy.value) return
+
+  const deletedManga = manga.value
+  deleteBusy.value = true
+  deleteMessage.value = deleteFiles ? '正在删除下载文件...' : '正在从书架移除...'
+
+  try {
+    await library.deleteManga(deletedManga.id, { deleteFiles })
+    if (deletedManga.source === 'download') {
+      cloudDownloadService.forgetDownloadedManga(deletedManga.id)
+    }
+    showDeleteConfirm.value = false
+    router.replace({ name: 'library' })
+  } catch (error) {
+    deleteMessage.value = error instanceof Error ? error.message : '删除失败'
+  } finally {
+    deleteBusy.value = false
+  }
 }
 
 function refreshDownloadState() {
@@ -222,6 +301,21 @@ async function downloadCloudManga() {
   position: absolute;
   top: 18px;
   left: 18px;
+  display: inline-flex;
+  width: 46px;
+  height: 46px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  color: var(--color-accent);
+  background: rgba(15, 15, 15, 0.48);
+}
+
+.delete-button {
+  position: absolute;
+  top: 18px;
+  right: 18px;
   display: inline-flex;
   width: 46px;
   height: 46px;
@@ -351,5 +445,83 @@ async function downloadCloudManga() {
 .chapter-card p {
   margin: 6px 0 0;
   color: rgba(209, 197, 183, 0.62);
+}
+
+.delete-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.delete-sheet {
+  width: min(100%, 520px);
+  border: 1px solid rgba(153, 143, 131, 0.18);
+  border-radius: 22px;
+  padding: 22px;
+  color: var(--color-text);
+  background: rgba(23, 23, 23, 0.98);
+  box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.42);
+}
+
+.delete-sheet h2 {
+  margin: 8px 0 12px;
+  font-size: 24px;
+  font-weight: 400;
+}
+
+.delete-sheet p {
+  margin: 0;
+  color: rgba(209, 197, 183, 0.68);
+  line-height: 1.7;
+}
+
+.delete-sheet .label-caps {
+  color: var(--color-accent);
+}
+
+.delete-message {
+  margin-top: 12px !important;
+  color: var(--color-accent) !important;
+  font-size: 13px;
+}
+
+.delete-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.delete-actions button {
+  min-height: 48px;
+}
+
+.danger-button {
+  color: #fca5a5;
+  border-color: rgba(252, 165, 165, 0.3);
+}
+
+.sheet-fade-enter-active,
+.sheet-fade-leave-active {
+  transition: opacity 160ms ease;
+}
+
+.sheet-fade-enter-active .delete-sheet,
+.sheet-fade-leave-active .delete-sheet {
+  transition: transform 180ms ease;
+}
+
+.sheet-fade-enter-from,
+.sheet-fade-leave-to {
+  opacity: 0;
+}
+
+.sheet-fade-enter-from .delete-sheet,
+.sheet-fade-leave-to .delete-sheet {
+  transform: translateY(18px);
 }
 </style>

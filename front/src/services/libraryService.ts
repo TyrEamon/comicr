@@ -9,6 +9,7 @@ import {
   listMangas,
   putRecord,
 } from './db'
+import { downloadTargetService } from './downloadTargetService'
 import { localFolderService } from './localFolderService'
 import type { ImageAsset, MangaImageRecord, MangaItem, MangaSource, ReadingProgress, ShelfState } from './types'
 
@@ -308,11 +309,22 @@ export const libraryService = {
     return URL.createObjectURL(blob)
   },
 
-  async deleteManga(mangaId: string) {
+  async deleteManga(mangaId: string, options?: { deleteFiles?: boolean }) {
     if (cloudService.isWebDavReaderId(mangaId)) {
+      cloudService.removeWebDavIndexedManga(cloudService.pathFromReaderId(mangaId))
       this.removeProgress(mangaId)
       this.removeShelfState(mangaId)
       return
+    }
+
+    const manga = await getRecord<MangaItem>('mangas', mangaId)
+    if (options?.deleteFiles && manga?.source === 'download' && downloadTargetService.isAvailable()) {
+      const images = await getImagesByManga(mangaId)
+      const uris = images.map((image) => image.uri).filter((uri): uri is string => Boolean(uri))
+      const result = await downloadTargetService.deleteImages(uris)
+      if (result.failed > 0) {
+        throw new Error(`有 ${result.failed} 张下载图片删除失败，请检查下载目录授权`)
+      }
     }
 
     await deleteImagesByManga(mangaId)

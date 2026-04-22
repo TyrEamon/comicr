@@ -740,6 +740,16 @@ export const cloudService = {
     })
   },
 
+  removeWebDavIndexedManga(path: string) {
+    const normalizedPath = normalizeRelativePath(path)
+    const cached = loadIndexCache()
+    saveIndexCache(
+      cached.items
+        .filter((item) => normalizeRelativePath(item.path) !== normalizedPath)
+        .map((item) => ({ ...item, coverUrl: '' })),
+    )
+  },
+
   async listFiles(providerId: string, path = ''): Promise<CloudFile[]> {
     if (providerId === LOCAL_PROVIDER_ID) {
       return [

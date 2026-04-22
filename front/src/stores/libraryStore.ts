@@ -125,8 +125,8 @@ export const useLibraryStore = defineStore('library', () => {
     return manga
   }
 
-  async function deleteManga(mangaId: string) {
-    await libraryService.deleteManga(mangaId)
+  async function deleteManga(mangaId: string, options?: { deleteFiles?: boolean }) {
+    await libraryService.deleteManga(mangaId, options)
     await refresh()
   }
 

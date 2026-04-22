@@ -14,6 +14,11 @@ interface NativeDownloadImageResult {
   folderUri: string
 }
 
+interface NativeDeleteImagesResult {
+  deleted: number
+  failed: number
+}
+
 interface NativeDownloadTargetPlugin {
   pickFolder(): Promise<NativeDownloadTargetFolder>
   writeImage(options: {
@@ -23,6 +28,7 @@ interface NativeDownloadTargetPlugin {
     type: string
     base64: string
   }): Promise<NativeDownloadImageResult>
+  deleteImages(options: { uris: string[] }): Promise<NativeDeleteImagesResult>
 }
 
 export interface DownloadTarget {
@@ -86,5 +92,10 @@ export const downloadTargetService = {
       type: type || blob.type || 'image/jpeg',
       base64,
     })
+  },
+
+  async deleteImages(uris: string[]) {
+    if (uris.length === 0) return { deleted: 0, failed: 0 }
+    return downloadTargetPlugin.deleteImages({ uris })
   },
 }

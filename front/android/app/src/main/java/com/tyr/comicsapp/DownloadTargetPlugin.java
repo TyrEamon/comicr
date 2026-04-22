@@ -14,6 +14,7 @@ import android.util.Base64;
 import androidx.activity.result.ActivityResult;
 import androidx.documentfile.provider.DocumentFile;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -63,6 +64,36 @@ public class DownloadTargetPlugin extends Plugin {
             } catch (Exception error) {
                 rejectOnMain(call, error.getMessage() == null ? "写入下载文件失败" : error.getMessage());
             }
+        });
+    }
+
+    @PluginMethod
+    public void deleteImages(PluginCall call) {
+        JSArray uriItems = call.getArray("uris");
+        if (uriItems == null || uriItems.length() == 0) {
+            call.reject("缺少要删除的下载文件");
+            return;
+        }
+
+        downloadExecutor.execute(() -> {
+            int deleted = 0;
+            int failed = 0;
+
+            for (int index = 0; index < uriItems.length(); index++) {
+                String uriValue = uriItems.optString(index, "");
+                if (uriValue.isEmpty()) continue;
+
+                if (deleteUri(uriValue)) {
+                    deleted++;
+                } else {
+                    failed++;
+                }
+            }
+
+            JSObject response = new JSObject();
+            response.put("deleted", deleted);
+            response.put("failed", failed);
+            resolveOnMain(call, response);
         });
     }
 
@@ -119,6 +150,30 @@ public class DownloadTargetPlugin extends Plugin {
 
         writeBase64ToUri(image.getUri(), base64);
         return imageResponse(image.getUri().toString(), safeImageName, type, mangaFolder.getUri().toString());
+    }
+
+    private boolean deleteUri(String uriValue) {
+        try {
+            Uri uri = Uri.parse(uriValue);
+            String scheme = uri.getScheme();
+            if ("file".equalsIgnoreCase(scheme)) {
+                String path = uri.getPath();
+                return path != null && new File(path).delete();
+            }
+
+            try {
+                DocumentFile file = DocumentFile.fromSingleUri(getContext(), uri);
+                if (file != null && file.exists()) {
+                    return file.delete();
+                }
+            } catch (Exception ignored) {
+                // Fall through to ContentResolver delete below.
+            }
+
+            return getContext().getContentResolver().delete(uri, null, null) > 0;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private JSObject writeToDefaultFolder(String title, String name, String type, String base64) throws Exception {
