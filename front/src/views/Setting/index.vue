@@ -59,7 +59,7 @@
       <div class="setting-card-header">
         <div>
           <h2>下载位置</h2>
-          <p>{{ downloadTargetLabel }}</p>
+          <p>{{ downloadTargetLabel }} · {{ downloadConcurrency }} 线程</p>
         </div>
         <span class="status-pill">{{ hasCustomDownloadTarget ? '自定义' : '默认' }}</span>
       </div>
@@ -73,6 +73,25 @@
           <RotateCcw :size="18" />
           恢复默认
         </button>
+      </div>
+
+      <div class="download-concurrency">
+        <div>
+          <label class="input-label">下载线程数</label>
+          <p>只影响单本漫画内部同时下载的图片数量</p>
+        </div>
+        <div class="concurrency-options" role="group" aria-label="下载线程数">
+          <button
+            v-for="value in downloadConcurrencyOptions"
+            :key="value"
+            class="setting-chip"
+            :class="{ active: downloadConcurrency === value }"
+            type="button"
+            @click="setDownloadConcurrency(value)"
+          >
+            {{ value }}
+          </button>
+        </div>
       </div>
     </section>
 
@@ -130,6 +149,7 @@
 
 <script setup lang="ts">
 import { archiveService } from '@/services/archiveService'
+import { cloudDownloadService } from '@/services/cloudDownloadService'
 import { cloudService } from '@/services/cloudService'
 import { downloadTargetService } from '@/services/downloadTargetService'
 import { localFolderService } from '@/services/localFolderService'
@@ -146,6 +166,8 @@ const busy = ref(false)
 const importedManga = ref<{ id: string; title: string } | null>(null)
 const cacheStats = ref({ usedBytes: 0, pageBytes: 0, coverBytes: 0, pageCount: 0, coverCount: 0 })
 const cacheLimitMb = ref(Math.round(cloudService.getCloudCacheSettings().maxBytes / 1024 / 1024))
+const downloadConcurrency = ref(cloudDownloadService.getDownloadSettings().concurrency)
+const downloadConcurrencyOptions = [1, 2, 3]
 const downloadTargetVersion = ref(0)
 const downloadTargetAvailable = downloadTargetService.isAvailable()
 const downloadTargetLabel = computed(() => {
@@ -330,6 +352,12 @@ function resetDownloadTarget() {
   message.value = '下载位置已恢复为 Download/Comicr'
 }
 
+function setDownloadConcurrency(value: number) {
+  const settings = cloudDownloadService.updateDownloadSettings({ concurrency: value })
+  downloadConcurrency.value = settings.concurrency
+  message.value = `下载线程数已设置为 ${settings.concurrency}`
+}
+
 async function saveCacheLimit() {
   busy.value = true
   try {
@@ -446,6 +474,38 @@ function formatBytes(value: number) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.download-concurrency {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid rgba(153, 143, 131, 0.12);
+  padding-top: 14px;
+}
+
+.download-concurrency p {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.concurrency-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.setting-chip {
+  min-height: 42px;
+  border: 1px solid rgba(153, 143, 131, 0.18);
+  border-radius: 14px;
+  color: rgba(209, 197, 183, 0.78);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.setting-chip.active {
+  color: #21180f;
+  border-color: transparent;
+  background: var(--color-accent);
 }
 
 .import-button {
