@@ -144,7 +144,7 @@ const sourceLabel = computed(() => {
 
 onMounted(async () => {
   if (library.mangas.length === 0) {
-    await library.load()
+    await library.ensureLoaded()
   }
   manga.value = await libraryService.getManga(mangaId.value) ?? null
   coverUrl.value = await libraryService.getCoverUrl(mangaId.value)

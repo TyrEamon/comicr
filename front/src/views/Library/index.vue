@@ -78,7 +78,7 @@ const tabItems: Array<{ id: LibraryTab, label: string }> = [
 ]
 
 onMounted(() => {
-  void library.load()
+  void library.ensureLoaded()
   window.addEventListener('app-search', handleAppSearch)
 })
 

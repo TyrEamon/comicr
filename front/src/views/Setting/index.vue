@@ -158,7 +158,7 @@ const hasCustomDownloadTarget = computed(() => {
 })
 
 onMounted(() => {
-  void library.load()
+  void library.ensureLoaded()
   void refreshCloudCacheStats()
 })
 
@@ -263,7 +263,7 @@ async function handleFolderImport() {
       lastManga = { id: manga.id, title: manga.title }
     }
 
-    await library.load()
+    await library.refresh()
     importedManga.value = folders.length === 1 ? lastManga : null
     message.value = folders.length === 1 && lastManga
       ? `已添加 ${lastManga.title}（${totalImages} 页，不复制原图）`

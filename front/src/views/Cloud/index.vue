@@ -179,7 +179,7 @@ const emptyWebDavText = computed(() => (
 let taskPollTimer: number | undefined
 
 onMounted(async () => {
-  await library.load()
+  await library.ensureLoaded()
   await refreshProviders()
   if (webDavConnected.value) {
     await loadCachedWebDavLibrary()
@@ -230,7 +230,7 @@ async function disconnectWebDav() {
   webDavLoadFailed.value = false
   message.value = 'WebDAV 已断开'
   await refreshProviders()
-  await library.load()
+  await library.refresh()
 }
 
 async function refreshWebDavLibrary() {
@@ -246,7 +246,7 @@ async function refreshWebDavLibrary() {
     items.forEach((item) => {
       previewMap[item.path] = { imageCount: item.imageCount, coverUrl: item.coverUrl }
     })
-    await library.load()
+    await library.refresh()
     message.value = webDavFolders.value.length > 0 ? '远程漫画目录已刷新' : 'WebDAV 已连接，但当前目录还没有漫画文件夹'
   } catch (error) {
     webDavLoadFailed.value = true
@@ -291,7 +291,7 @@ function syncDownloadedMap() {
     downloadedMap[folder.path] = downloaded
   })
   if (changed) {
-    void library.load()
+    void library.refresh()
   }
 }
 

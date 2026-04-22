@@ -8,15 +8,28 @@ export const useLibraryStore = defineStore('library', () => {
   const coverUrls = ref<Record<string, string>>({})
   const loading = ref(false)
   const version = ref(0)
+  const loadedAt = ref(0)
   let loadToken = 0
+  let loadPromise: Promise<void> | null = null
+
+  const CACHE_TTL_MS = 30_000
 
   const count = computed(() => mangas.value.length)
 
-  async function load() {
+  async function load(force = false) {
+    if (!force && mangas.value.length > 0 && Date.now() - loadedAt.value < CACHE_TTL_MS) {
+      return
+    }
+
+    if (loadPromise) {
+      return loadPromise
+    }
+
     const currentToken = Date.now()
     loadToken = currentToken
     loading.value = true
-    try {
+
+    loadPromise = (async () => {
       const nextMangas = await libraryService.listMangas()
       if (loadToken !== currentToken) return
 
@@ -26,13 +39,28 @@ export const useLibraryStore = defineStore('library', () => {
         return record
       }, {})
       version.value += 1
-    } finally {
+      loadedAt.value = Date.now()
+
       if (loadToken === currentToken) {
         loading.value = false
+        void loadCovers(currentToken)
       }
-    }
+    })().finally(() => {
+      if (loadToken === currentToken) {
+        loading.value = false
+        loadPromise = null
+      }
+    })
 
-    void loadCovers(currentToken)
+    return loadPromise
+  }
+
+  function ensureLoaded() {
+    return load(false)
+  }
+
+  function refresh() {
+    return load(true)
   }
 
   async function loadCovers(token: number) {
@@ -59,13 +87,13 @@ export const useLibraryStore = defineStore('library', () => {
 
   async function importArchive(file: File, title?: string) {
     const manga = await libraryService.importArchive(file, 'archive', title)
-    await load()
+    await refresh()
     return manga
   }
 
   async function importImageFiles(files: File[], title?: string) {
     const manga = await libraryService.importImageFiles(files, 'archive', title)
-    await load()
+    await refresh()
     return manga
   }
 
@@ -75,7 +103,7 @@ export const useLibraryStore = defineStore('library', () => {
     source: MangaSource = 'archive',
   ) {
     const manga = await libraryService.importImageBlobs(title, images, source)
-    await load()
+    await refresh()
     return manga
   }
 
@@ -92,13 +120,13 @@ export const useLibraryStore = defineStore('library', () => {
     images: Array<{ name: string; type?: string; archiveUri: string; entryName: string }>,
   ) {
     const manga = await libraryService.importArchiveRefs(title, images)
-    await load()
+    await refresh()
     return manga
   }
 
   async function deleteManga(mangaId: string) {
     await libraryService.deleteManga(mangaId)
-    await load()
+    await refresh()
   }
 
   function getShelfState(mangaId: string) {
@@ -130,6 +158,8 @@ export const useLibraryStore = defineStore('library', () => {
     loading,
     count,
     load,
+    ensureLoaded,
+    refresh,
     importArchive,
     importImageFiles,
     importImageBlobs,
