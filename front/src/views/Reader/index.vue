@@ -201,6 +201,7 @@ const ignoreNextTap = ref(false)
 
 let hideTimer: number | undefined
 let scrollSyncFrame: number | undefined
+let lastTapAt = 0
 
 const mangaId = computed(() => String(route.params.id))
 const isCloudReader = computed(() => cloudService.isWebDavReaderId(mangaId.value))
@@ -287,6 +288,8 @@ watch(fitMode, async (mode) => {
 })
 
 function toggleControls() {
+  if (handleDoubleTap()) return
+
   if (ignoreNextTap.value) {
     ignoreNextTap.value = false
     return
@@ -427,6 +430,8 @@ function handleProgressInput(event: Event) {
 }
 
 function handleGalleryTap(event: MouseEvent) {
+  if (handleDoubleTap()) return
+
   if (ignoreNextTap.value) {
     ignoreNextTap.value = false
     return
@@ -444,6 +449,28 @@ function handleGalleryTap(event: MouseEvent) {
   }
 
   toggleControls()
+}
+
+function handleDoubleTap() {
+  const now = Date.now()
+  if (now - lastTapAt > 280) {
+    lastTapAt = now
+    return false
+  }
+
+  lastTapAt = 0
+  fitMode.value = fitMode.value === 'width' ? 'contain' : 'width'
+  controlsVisible.value = false
+  brightnessVisible.value = false
+  pageListVisible.value = false
+  readerSettingsVisible.value = false
+  window.clearTimeout(hideTimer)
+
+  if (isContinuousMode.value) {
+    void scrollToCurrentIndex('auto')
+  }
+
+  return true
 }
 
 function setReaderMode(mode: ReaderMode) {
