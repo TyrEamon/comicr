@@ -1008,17 +1008,20 @@ export const cloudService = {
     return readCloudCacheStats()
   },
 
-  async clearCloudCache() {
+  async clearCloudCache(options?: { includeCovers?: boolean }) {
+    const includeCovers = Boolean(options?.includeCovers)
     const records = await getAllRecords<CloudPageCacheRecord | CloudCoverCacheRecord>('cloudCache')
     await Promise.all(
       records
-        .filter((record) => isPageCacheRecord(record) || isCoverCacheRecord(record))
+        .filter((record) => isPageCacheRecord(record) || (includeCovers && isCoverCacheRecord(record)))
         .map((record) => deleteRecord('cloudCache', record.id)),
     )
     pageObjectUrls.forEach((url) => URL.revokeObjectURL(url))
-    coverObjectUrls.forEach((url) => URL.revokeObjectURL(url))
     pageObjectUrls.clear()
-    coverObjectUrls.clear()
+    if (includeCovers) {
+      coverObjectUrls.forEach((url) => URL.revokeObjectURL(url))
+      coverObjectUrls.clear()
+    }
   },
 
   async downloadWebDavManga(path: string) {

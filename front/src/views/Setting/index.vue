@@ -126,6 +126,11 @@
         inputmode="numeric"
       />
 
+      <label class="cover-cache-toggle">
+        <input v-model="clearCoverCache" type="checkbox" />
+        <span>清理时同时删除封面缓存</span>
+      </label>
+
       <div class="cache-actions">
         <button class="ghost-button import-button" type="button" :disabled="busy" @click="saveCacheLimit">
           <HardDrive :size="18" />
@@ -166,6 +171,7 @@ const busy = ref(false)
 const importedManga = ref<{ id: string; title: string } | null>(null)
 const cacheStats = ref({ usedBytes: 0, pageBytes: 0, coverBytes: 0, pageCount: 0, coverCount: 0 })
 const cacheLimitMb = ref(Math.round(cloudService.getCloudCacheSettings().maxBytes / 1024 / 1024))
+const clearCoverCache = ref(false)
 const cloudThreadCount = ref(cloudThreadSettings.getSettings().threadCount)
 const cloudThreadOptions = [1, 2, 3, 4]
 const downloadTargetVersion = ref(0)
@@ -377,9 +383,9 @@ async function saveCacheLimit() {
 async function clearCloudCache() {
   busy.value = true
   try {
-    await cloudService.clearCloudCache()
+    await cloudService.clearCloudCache({ includeCovers: clearCoverCache.value })
     await refreshCloudCacheStats()
-    message.value = '云盘缓存已清理'
+    message.value = clearCoverCache.value ? '云盘页面和封面缓存已清理' : '云盘页面缓存已清理'
   } catch (error) {
     message.value = error instanceof Error ? error.message : '清理缓存失败'
   } finally {
@@ -506,6 +512,20 @@ function formatBytes(value: number) {
   color: #21180f;
   border-color: transparent;
   background: var(--color-accent);
+}
+
+.cover-cache-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(209, 197, 183, 0.72);
+  font-size: 13px;
+}
+
+.cover-cache-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-accent);
 }
 
 .import-button {
