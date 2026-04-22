@@ -781,6 +781,26 @@ export const cloudService = {
     return cachePageBlob(mangaPath, file, blob, image.index)
   },
 
+  async getWebDavDownloadItems(path: string) {
+    const files = await getWebDavImageFiles(path)
+    if (files.length === 0) {
+      throw new Error('该文件夹里没有可下载的图片')
+    }
+
+    return {
+      title: cleanFolderTitle(path),
+      files: files.map((file) => ({
+        name: file.name,
+        path: file.path,
+        type: file.type,
+      })),
+    }
+  },
+
+  async fetchWebDavBlob(path: string) {
+    return fetchBlobByPath(path)
+  },
+
   getCloudCacheSettings() {
     return loadCloudCacheSettings()
   },

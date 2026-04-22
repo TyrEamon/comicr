@@ -133,9 +133,10 @@
                 <BookOpen :size="16" />
                 阅读
               </button>
-              <button class="primary-button action-button" type="button" :disabled="busy" @click="downloadWebDavManga(folder.path)">
-                <Download :size="16" />
-                下载
+              <button class="primary-button action-button" type="button" :disabled="busy || downloadedMap[folder.path]" @click="downloadWebDavManga(folder.path)">
+                <Check v-if="downloadedMap[folder.path]" :size="16" />
+                <Download v-else :size="16" />
+                {{ downloadedMap[folder.path] ? '已下载' : '下载' }}
               </button>
             </div>
           </article>
@@ -147,9 +148,10 @@
 
 <script setup lang="ts">
 import { cloudService } from '@/services/cloudService'
+import { cloudDownloadService } from '@/services/cloudDownloadService'
 import type { CloudFile, ProviderSummary, WebDavConfig } from '@/services/types'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { BookOpen, Cloud as CloudIcon, CloudOff, Download, FolderOpen } from 'lucide-vue-next'
+import { BookOpen, Check, Cloud as CloudIcon, CloudOff, Download, FolderOpen } from 'lucide-vue-next'
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -164,6 +166,7 @@ const busy = ref(false)
 const message = ref('')
 const webDavFolders = ref<CloudFile[]>([])
 const previewMap = reactive<Record<string, { imageCount: number; coverUrl: string }>>({})
+const downloadedMap = reactive<Record<string, boolean>>({})
 const webDavForm = reactive<WebDavConfig>(cloudService.getWebDavConfig())
 
 onMounted(async () => {
@@ -250,6 +253,14 @@ function applyWebDavMangaItems(items: Awaited<ReturnType<typeof cloudService.get
     sizeBytes: item.sizeBytes,
     updatedAt: item.updatedAt,
   }))
+  syncDownloadedMap()
+}
+
+function syncDownloadedMap() {
+  Object.keys(downloadedMap).forEach((key) => delete downloadedMap[key])
+  webDavFolders.value.forEach((folder) => {
+    downloadedMap[folder.path] = cloudDownloadService.isWebDavDownloaded(folder.path)
+  })
 }
 
 async function openWebDavReader(path: string) {
@@ -265,11 +276,14 @@ async function openWebDavReader(path: string) {
 
 async function downloadWebDavManga(path: string) {
   busy.value = true
-  message.value = '正在下载到本地书库...'
+  message.value = '正在下载到本地目录...'
   try {
-    const remoteManga = await cloudService.downloadWebDavManga(path)
-    const manga = await library.importImageBlobs(remoteManga.title, remoteManga.images, 'cloud')
-    message.value = `已下载 ${manga.title}（${manga.imageCount} 页）`
+    const result = await cloudDownloadService.downloadWebDavManga(path, (progress) => {
+      message.value = `正在下载 ${progress.title}：${progress.current}/${progress.total}`
+    })
+    downloadedMap[path] = true
+    message.value = `已下载 ${result.manga.title}（${result.manga.imageCount} 页）到 ${result.outputPath}`
+    await library.load()
     await refreshProviders()
   } catch (error) {
     message.value = error instanceof Error ? error.message : '下载失败'

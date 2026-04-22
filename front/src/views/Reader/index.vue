@@ -113,7 +113,9 @@
           </button>
         </div>
 
-        <div class="reader-actions">
+        <div v-if="downloadMessage" class="reader-download-status">{{ downloadMessage }}</div>
+
+        <div class="reader-actions" :class="{ 'has-cloud-download': isCloudReader }">
           <button class="reader-tool" :class="{ active: brightnessVisible }" type="button" aria-label="亮度" @click="toggleBrightness">
             <Sun :size="24" />
           </button>
@@ -125,6 +127,17 @@
           </button>
           <button class="reader-tool" type="button" aria-label="重新加载当前页" @click="reloadCurrentPage">
             <RefreshCw :size="23" />
+          </button>
+          <button
+            v-if="isCloudReader"
+            class="reader-tool"
+            type="button"
+            :aria-label="cloudDownloaded ? '已下载当前漫画' : '下载当前漫画'"
+            :disabled="downloadBusy || cloudDownloaded"
+            @click="downloadCurrentCloudManga"
+          >
+            <Check v-if="cloudDownloaded" :size="23" />
+            <DownloadIcon v-else :size="23" />
           </button>
           <button class="reader-tool" :class="{ active: readerSettingsVisible }" type="button" aria-label="阅读设置" @click="toggleReaderSettings">
             <Settings :size="24" />
@@ -171,10 +184,11 @@
 
 <script setup lang="ts">
 import { cloudService } from '@/services/cloudService'
+import { cloudDownloadService } from '@/services/cloudDownloadService'
 import { libraryService } from '@/services/libraryService'
 import { readerService, type ReaderFitMode, type ReaderMode } from '@/services/readerService'
 import type { ImageAsset, MangaItem } from '@/services/types'
-import { ArrowLeft, Bookmark, ChevronsLeft, ChevronsRight, PanelTop, RefreshCw, Settings, Sun, X } from 'lucide-vue-next'
+import { ArrowLeft, Bookmark, Check, ChevronsLeft, ChevronsRight, Download as DownloadIcon, PanelTop, RefreshCw, Settings, Sun, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -193,6 +207,9 @@ const brightness = ref(100)
 const brightnessVisible = ref(false)
 const pageListVisible = ref(false)
 const readerSettingsVisible = ref(false)
+const downloadBusy = ref(false)
+const downloadMessage = ref('')
+const cloudDownloaded = ref(false)
 const readerMode = ref<ReaderMode>(preferences.mode)
 const fitMode = ref<ReaderFitMode>(preferences.fitMode)
 const continuousContainer = ref<HTMLElement | null>(null)
@@ -219,6 +236,7 @@ onMounted(async () => {
   continuousFrames.value = []
   try {
     if (isCloudReader.value) {
+      cloudDownloaded.value = cloudDownloadService.isWebDavDownloaded(cloudService.pathFromReaderId(mangaId.value))
       const remoteManga = await cloudService.getWebDavReaderAssets(mangaId.value)
       manga.value = {
         id: remoteManga.id,
@@ -378,6 +396,34 @@ function reloadCurrentPage() {
   pageListVisible.value = false
   readerSettingsVisible.value = false
   scheduleHide()
+}
+
+async function downloadCurrentCloudManga() {
+  if (!isCloudReader.value || downloadBusy.value || cloudDownloaded.value) return
+
+  downloadBusy.value = true
+  downloadMessage.value = '正在准备下载...'
+  controlsVisible.value = true
+  brightnessVisible.value = false
+  pageListVisible.value = false
+  readerSettingsVisible.value = false
+  window.clearTimeout(hideTimer)
+
+  try {
+    const result = await cloudDownloadService.downloadWebDavManga(
+      cloudService.pathFromReaderId(mangaId.value),
+      (progress) => {
+        downloadMessage.value = `正在下载 ${progress.current}/${progress.total}`
+      },
+    )
+    cloudDownloaded.value = true
+    downloadMessage.value = `已下载到 ${result.outputPath}`
+  } catch (error) {
+    downloadMessage.value = error instanceof Error ? error.message : '下载失败'
+  } finally {
+    downloadBusy.value = false
+    scheduleHide()
+  }
 }
 
 function toggleReaderSettings() {
@@ -774,8 +820,25 @@ function handleContinuousScroll() {
   background: transparent;
 }
 
+.reader-tool:disabled {
+  cursor: wait;
+  opacity: 0.42;
+}
+
 .reader-tool.active {
   color: var(--color-accent);
+}
+
+.reader-actions.has-cloud-download {
+  grid-template-columns: repeat(6, minmax(40px, 1fr));
+  gap: 6px;
+}
+
+.reader-download-status {
+  margin: -6px 0 14px;
+  color: var(--color-accent-bright);
+  font-size: 12px;
+  text-align: center;
 }
 
 .reader-panel {
