@@ -1,4 +1,5 @@
 import JSZip from 'jszip'
+import { archiveService } from './archiveService'
 import { cloudService } from './cloudService'
 import {
   deleteImagesByManga,
@@ -220,6 +221,44 @@ export const libraryService = {
     return manga
   },
 
+  async importArchiveRefs(
+    title: string,
+    images: Array<{ name: string; type?: string; archiveUri: string; entryName: string }>,
+  ) {
+    if (images.length === 0) {
+      throw new Error('没有可索引的压缩包图片')
+    }
+
+    const now = Date.now()
+    const mangaId = randomId('manga')
+    const manga: MangaItem = {
+      id: mangaId,
+      title: title.trim() || '未命名漫画',
+      localPath: mangaId,
+      imageCount: images.length,
+      source: 'archive',
+      addedAt: now,
+      updatedAt: now,
+    }
+
+    await putRecord('mangas', manga)
+
+    for (const [index, image] of images.entries()) {
+      const record: MangaImageRecord = {
+        id: `${mangaId}:${index}`,
+        mangaId,
+        index,
+        name: image.name,
+        type: image.type || mimeFromName(image.name),
+        archiveUri: image.archiveUri,
+        archiveEntryName: image.entryName,
+      }
+      await putRecord('images', record)
+    }
+
+    return manga
+  },
+
   async getCoverUrl(mangaId: string) {
     if (cloudService.isWebDavReaderId(mangaId)) {
       const path = cloudService.pathFromReaderId(mangaId)
@@ -232,6 +271,10 @@ export const libraryService = {
     if (cover.blob) return URL.createObjectURL(cover.blob)
     if (cover.uri && localFolderService.isAvailable()) {
       const blob = await localFolderService.readImage(cover.uri, cover.type)
+      return URL.createObjectURL(blob)
+    }
+    if (cover.archiveUri && cover.archiveEntryName && archiveService.isAvailable()) {
+      const blob = await archiveService.readEntry(cover.archiveUri, cover.archiveEntryName, cover.type)
       return URL.createObjectURL(blob)
     }
     return ''
@@ -247,12 +290,18 @@ export const libraryService = {
         type: image.type,
         src: image.blob ? URL.createObjectURL(image.blob) : '',
         uri: image.uri,
+        archiveUri: image.archiveUri,
+        archiveEntryName: image.archiveEntryName,
       })),
     )
   },
 
   async loadImageAssetSrc(image: ImageAsset) {
     if (image.src) return image.src
+    if (image.archiveUri && image.archiveEntryName) {
+      const blob = await archiveService.readEntry(image.archiveUri, image.archiveEntryName, image.type)
+      return URL.createObjectURL(blob)
+    }
     if (!image.uri) return ''
 
     const blob = await localFolderService.readImage(image.uri, image.type)

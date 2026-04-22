@@ -269,7 +269,7 @@ onUnmounted(() => {
 
 watch(currentIndex, (value) => {
   libraryService.saveProgress(mangaId.value, value, images.value.length)
-  void ensureImagesAround(value)
+  void ensureImagesAround(value).then(() => pruneLoadedLocalImages(value))
 })
 
 watch(readerMode, async (mode) => {
@@ -379,6 +379,23 @@ async function ensureImagesAround(index: number) {
     : [-1, 0, 1]
 
   await Promise.all(offsets.map((offset) => ensureImageLoaded(index + offset)))
+}
+
+function pruneLoadedLocalImages(index: number) {
+  if (isCloudReader.value) return
+
+  const keepDistance = isContinuousMode.value ? 6 : 3
+  images.value = images.value.map((image, imageIndex) => {
+    if (Math.abs(imageIndex - index) <= keepDistance) return image
+    if (!image.src.startsWith('blob:')) return image
+    if (!image.uri && !image.archiveUri) return image
+
+    URL.revokeObjectURL(image.src)
+    return {
+      ...image,
+      src: '',
+    }
+  })
 }
 
 async function ensureImageLoaded(index: number) {

@@ -22,7 +22,7 @@
       />
 
       <div class="import-actions">
-        <button class="ghost-button import-button" type="button" :disabled="busy" @click="archiveInput?.click()">
+        <button class="ghost-button import-button" type="button" :disabled="busy" @click="handleArchiveButton">
           <Archive :size="18" />
           压缩包
         </button>
@@ -108,6 +108,7 @@
 </template>
 
 <script setup lang="ts">
+import { archiveService } from '@/services/archiveService'
 import { cloudService } from '@/services/cloudService'
 import { localFolderService } from '@/services/localFolderService'
 import { useLibraryStore } from '@/stores/libraryStore'
@@ -131,6 +132,41 @@ onMounted(() => {
 
 function requestedTitle() {
   return importTitle.value.trim() || undefined
+}
+
+function handleArchiveButton() {
+  if (archiveService.isAvailable()) {
+    void handleNativeArchiveImport()
+    return
+  }
+  archiveInput.value?.click()
+}
+
+async function handleNativeArchiveImport() {
+  busy.value = true
+  importedManga.value = null
+  message.value = '正在申请压缩包授权...'
+  try {
+    const archive = await archiveService.pickArchive()
+    const title = requestedTitle() || archive.title
+    message.value = `正在保存压缩包索引：${title}`
+    const manga = await library.importArchiveRefs(
+      title,
+      archive.pages.map((page) => ({
+        name: page.name,
+        type: page.type,
+        archiveUri: page.archiveUri,
+        entryName: page.entryName,
+      })),
+    )
+    importedManga.value = { id: manga.id, title: manga.title }
+    message.value = `已添加 ${manga.title}（${manga.imageCount} 页，不解压不复制）`
+    importTitle.value = ''
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '压缩包索引失败'
+  } finally {
+    busy.value = false
+  }
 }
 
 async function handleArchiveImport(event: Event) {

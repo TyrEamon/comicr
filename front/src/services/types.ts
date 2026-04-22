@@ -20,6 +20,8 @@ export interface MangaImageRecord {
   type: string
   blob?: Blob
   uri?: string
+  archiveUri?: string
+  archiveEntryName?: string
 }
 
 export interface ImageAsset {
@@ -29,6 +31,8 @@ export interface ImageAsset {
   type: string
   src: string
   uri?: string
+  archiveUri?: string
+  archiveEntryName?: string
   remotePath?: string
 }
 
