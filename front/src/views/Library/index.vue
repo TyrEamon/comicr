@@ -1,25 +1,25 @@
 <template>
   <div class="page library-page">
     <section class="library-hero">
-      <p class="label-caps">Library</p>
-      <h1 class="page-title">Pinned Works</h1>
-      <p class="page-subtitle">Imported archives, downloads, and cloud stories live here.</p>
+      <p class="label-caps">书库</p>
+      <h1 class="page-title">收藏作品</h1>
+      <p class="page-subtitle">导入、下载和云盘同步的漫画都会放在这里。</p>
     </section>
 
     <section class="toolbar surface-card">
-      <input v-model="searchQuery" class="text-input" type="search" placeholder="Search title" aria-label="Search title" />
+      <input v-model="searchQuery" class="text-input" type="search" placeholder="搜索标题" aria-label="搜索标题" />
 
       <div class="toolbar-row">
-        <select v-model="activeTab" class="select-input" aria-label="Library filter">
-          <option value="all">Library</option>
-          <option value="favorite">Bookmarks</option>
-          <option value="readLater">Watch Later</option>
-          <option value="pinned">Pinned</option>
+        <select v-model="activeTab" class="select-input" aria-label="书库筛选">
+          <option value="all">全部</option>
+          <option value="favorite">收藏</option>
+          <option value="readLater">稍后看</option>
+          <option value="pinned">置顶</option>
         </select>
 
         <button class="primary-button import-button" type="button" @click="fileInput?.click()">
           <Archive :size="18" />
-          Import
+          导入
         </button>
       </div>
 
@@ -28,7 +28,7 @@
 
     <div v-if="message" class="message">{{ message }}</div>
 
-    <div v-if="library.loading" class="empty-state">Loading your library...</div>
+    <div v-if="library.loading" class="empty-state">正在加载书库...</div>
 
     <MangaGrid
       v-else-if="visibleMangas.length > 0"
@@ -42,9 +42,9 @@
 
     <section v-else class="empty-state surface-card">
       <BookOpen :size="34" />
-      <h2>No manga yet</h2>
-      <p>Import a ZIP or CBZ file to create the first item in your mobile library.</p>
-      <button class="primary-button" type="button" @click="fileInput?.click()">Import Archive</button>
+      <h2>还没有漫画</h2>
+      <p>导入一个 ZIP 或 CBZ 文件，就能创建手机端书库里的第一本漫画。</p>
+      <button class="primary-button" type="button" @click="fileInput?.click()">导入压缩包</button>
     </section>
   </div>
 </template>
@@ -94,12 +94,12 @@ async function handleImport(event: Event) {
   const file = input.files?.[0]
   if (!file) return
 
-  message.value = 'Importing archive...'
+  message.value = '正在导入压缩包...'
   try {
     const manga = await library.importArchive(file)
-    message.value = `Imported ${manga.title}`
+    message.value = `已导入 ${manga.title}`
   } catch (error) {
-    message.value = error instanceof Error ? error.message : 'Import failed'
+    message.value = error instanceof Error ? error.message : '导入失败'
   } finally {
     input.value = ''
   }
@@ -161,4 +161,3 @@ async function handleImport(event: Event) {
   line-height: 1.7;
 }
 </style>
-

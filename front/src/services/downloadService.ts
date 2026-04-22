@@ -99,7 +99,7 @@ export const downloadService = {
     const task: DownloadTask = {
       id: taskId(),
       url: trimmed,
-      name: 'Preparing download',
+      name: '准备下载',
       status: 'pending',
       current: 0,
       total: 0,
@@ -122,7 +122,7 @@ export const downloadService = {
 
   async run(task: DownloadTask) {
     try {
-      setTask({ ...task, status: 'parsing', name: 'Parsing link', updatedAt: Date.now() })
+      setTask({ ...task, status: 'parsing', name: '正在解析链接', updatedAt: Date.now() })
 
       const pageUrl = new URL(task.url).toString()
       let title = new URL(pageUrl).hostname
@@ -163,7 +163,7 @@ export const downloadService = {
             blob,
           })
         } catch (error) {
-          console.warn(`Skip failed image: ${imageUrl}`, error)
+          console.warn(`跳过下载失败的图片: ${imageUrl}`, error)
         }
 
         currentTask = { ...currentTask, current: index + 1, updatedAt: Date.now() }
@@ -195,4 +195,3 @@ export const downloadService = {
     }
   },
 }
-

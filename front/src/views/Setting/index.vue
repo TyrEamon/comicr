@@ -1,13 +1,13 @@
 <template>
   <div class="page">
-    <p class="label-caps">Settings</p>
-    <h1 class="page-title">Settings</h1>
-    <p class="page-subtitle">Small, practical controls will live here after the core reading loop is stable.</p>
+    <p class="label-caps">设置</p>
+    <h1 class="page-title">设置</h1>
+    <p class="page-subtitle">核心阅读闭环稳定之后，这里会放一些真正需要的控制项。</p>
 
     <section class="surface-card setting-card">
       <div>
-        <h2>Build Route</h2>
-        <p>APK builds are handled by GitHub Actions. This app keeps Android tooling out of the local machine.</p>
+        <h2>打包方式</h2>
+        <p>APK 由 GitHub Actions 构建，本机不需要安装 Android Studio 或 Android SDK。</p>
       </div>
     </section>
   </div>
@@ -30,4 +30,3 @@
   line-height: 1.7;
 }
 </style>
-

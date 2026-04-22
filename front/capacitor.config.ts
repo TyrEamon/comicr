@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
   appId: 'com.tyr.comicsapp',
-  appName: 'Comics App',
+  appName: '漫画云读',
   webDir: 'dist',
   bundledWebRuntime: false,
   android: {
@@ -11,4 +11,3 @@ const config: CapacitorConfig = {
 }
 
 export default config
-

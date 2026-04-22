@@ -1,24 +1,24 @@
 <template>
   <div class="page download-page">
     <section class="download-hero">
-      <p class="label-caps">Downloads</p>
-      <h1 class="page-title">Downloads</h1>
-      <p class="page-subtitle">Paste a direct image or supported page link. Completed downloads are added to Library.</p>
+      <p class="label-caps">下载</p>
+      <h1 class="page-title">下载任务</h1>
+      <p class="page-subtitle">粘贴图片直链或支持的页面链接。下载完成后会自动加入书库。</p>
     </section>
 
     <section class="download-box surface-card">
-      <input v-model="url" class="text-input" type="url" placeholder="Paste download link" aria-label="Download link" @keydown.enter="startDownload" />
+      <input v-model="url" class="text-input" type="url" placeholder="粘贴下载链接" aria-label="下载链接" @keydown.enter="startDownload" />
       <button class="primary-button" type="button" :disabled="submitting" @click="startDownload">
         <DownloadIcon :size="18" />
-        Download
+        开始下载
       </button>
     </section>
 
     <p v-if="message" class="message">{{ message }}</p>
 
     <div class="tabs">
-      <button class="tab-button" :class="{ active: activeTab === 'active' }" type="button" @click="activeTab = 'active'">Active</button>
-      <button class="tab-button" :class="{ active: activeTab === 'completed' }" type="button" @click="activeTab = 'completed'">Completed</button>
+      <button class="tab-button" :class="{ active: activeTab === 'active' }" type="button" @click="activeTab = 'active'">进行中</button>
+      <button class="tab-button" :class="{ active: activeTab === 'completed' }" type="button" @click="activeTab = 'completed'">已完成</button>
     </div>
 
     <section v-if="visibleTasks.length > 0" class="task-list">
@@ -31,7 +31,7 @@
             <h2>{{ task.name }}</h2>
             <p>{{ task.url }}</p>
             <div class="task-meta">
-              <span>{{ task.status }}</span>
+              <span>{{ formatStatus(task.status) }}</span>
               <span>{{ task.current }} / {{ task.total || '-' }}</span>
             </div>
           </div>
@@ -39,7 +39,7 @@
             v-if="canCancel(task.status)"
             class="cancel-button"
             type="button"
-            aria-label="Cancel task"
+            aria-label="取消任务"
             @click="cancelTask(task.id)"
           >
             <X :size="22" />
@@ -55,8 +55,8 @@
 
     <section v-else class="empty-state surface-card">
       <DownloadIcon :size="32" />
-      <h2>{{ activeTab === 'active' ? 'No active tasks' : 'No completed tasks' }}</h2>
-      <p>New downloads will appear here as compact mobile-friendly cards.</p>
+      <h2>{{ activeTab === 'active' ? '暂无进行中的任务' : '暂无已完成任务' }}</h2>
+      <p>新的下载任务会以适合手机查看的卡片形式出现在这里。</p>
     </section>
   </div>
 </template>
@@ -98,19 +98,19 @@ function refresh() {
 
 async function startDownload() {
   if (!url.value.trim()) {
-    message.value = 'Paste a link first.'
+    message.value = '请先粘贴链接。'
     return
   }
 
   submitting.value = true
   try {
     await downloadService.start(url.value)
-    message.value = 'Download task added.'
+    message.value = '下载任务已添加。'
     activeTab.value = 'active'
     url.value = ''
     refresh()
   } catch (error) {
-    message.value = error instanceof Error ? error.message : 'Failed to create download task.'
+    message.value = error instanceof Error ? error.message : '创建下载任务失败。'
   } finally {
     submitting.value = false
   }
@@ -123,6 +123,18 @@ function cancelTask(taskId: string) {
 
 function canCancel(status: DownloadStatus) {
   return status === 'pending' || status === 'parsing' || status === 'downloading'
+}
+
+function formatStatus(status: DownloadStatus) {
+  const labels: Record<DownloadStatus, string> = {
+    pending: '等待中',
+    parsing: '解析中',
+    downloading: '下载中',
+    completed: '已完成',
+    failed: '失败',
+    cancelled: '已取消',
+  }
+  return labels[status]
 }
 
 function progressPercent(task: DownloadTask) {

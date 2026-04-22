@@ -1,16 +1,15 @@
 <template>
   <div class="page">
-    <p class="label-caps">Explore</p>
-    <h1 class="page-title">Online Sources</h1>
+    <p class="label-caps">发现</p>
+    <h1 class="page-title">在线源</h1>
     <p class="page-subtitle">
-      Online source support is intentionally after the local reader and APK build. The service shape is reserved for
-      TypeScript ports of the PC crawler logic.
+      在线源会放在本地阅读器和 APK 构建稳定之后实现。这里已经预留 service 结构，后续会把 PC 端解析逻辑移植成 TypeScript 版本。
     </p>
 
     <section class="surface-card placeholder">
       <Compass :size="34" />
-      <h2>Source adapters come next</h2>
-      <p>First we prove import, reading, downloads, and cloud import on Android.</p>
+      <h2>在线源适配稍后接入</h2>
+      <p>第一阶段先确认导入、阅读、下载和云盘导入在 Android 上跑通。</p>
     </section>
   </div>
 </template>
@@ -43,4 +42,3 @@ import { Compass } from 'lucide-vue-next'
   line-height: 1.7;
 }
 </style>
-

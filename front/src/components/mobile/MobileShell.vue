@@ -17,6 +17,5 @@ import MobileTopBar from './MobileTopBar.vue'
 const route = useRoute()
 const fullscreen = computed(() => Boolean(route.meta.fullscreen))
 const showBottomNav = computed(() => !fullscreen.value && !route.meta.hideBottomNav)
-const title = computed(() => String(route.meta.title ?? 'Library'))
+const title = computed(() => String(route.meta.title ?? '书库'))
 </script>
-

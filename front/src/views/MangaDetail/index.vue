@@ -3,13 +3,13 @@
     <section class="detail-hero">
       <img v-if="coverUrl" class="hero-image" :src="coverUrl" :alt="manga?.title || 'Cover'" />
       <div class="hero-shade" />
-      <button class="back-button" type="button" aria-label="Back" @click="router.back()">
+      <button class="back-button" type="button" aria-label="返回" @click="router.back()">
         <ArrowLeft :size="24" />
       </button>
       <div class="hero-copy">
-        <span class="genre-pill">Archive · Mobile</span>
-        <h1>{{ manga?.title || 'Loading' }}</h1>
-        <p>{{ manga?.imageCount ?? 0 }} pages · {{ progressLabel }}</p>
+        <span class="genre-pill">本地 · 手机端</span>
+        <h1>{{ manga?.title || '正在加载' }}</h1>
+        <p>{{ manga?.imageCount ?? 0 }} 页 · {{ progressLabel }}</p>
       </div>
     </section>
 
@@ -17,43 +17,43 @@
       <section class="action-row">
         <button class="primary-button read-button" type="button" :disabled="!manga" @click="readNow">
           <BookOpen :size="20" />
-          Read Now
+          开始阅读
         </button>
-        <IconButton label="Bookmark" :active="shelf.favorite" @click="toggleFavorite">
+        <IconButton label="收藏" :active="shelf.favorite" @click="toggleFavorite">
           <Bookmark :size="20" :fill="shelf.favorite ? 'currentColor' : 'none'" />
         </IconButton>
-        <IconButton label="Read later" :active="shelf.readLater" @click="toggleReadLater">
+        <IconButton label="稍后看" :active="shelf.readLater" @click="toggleReadLater">
           <Clock3 :size="20" />
         </IconButton>
       </section>
 
       <section class="stats-grid">
         <div class="surface-card stat-card">
-          <span>Pages</span>
+          <span>页数</span>
           <strong>{{ manga?.imageCount ?? 0 }}</strong>
         </div>
         <div class="surface-card stat-card">
-          <span>Progress</span>
+          <span>进度</span>
           <strong>{{ progressPercent }}</strong>
         </div>
         <div class="surface-card stat-card">
-          <span>Source</span>
+          <span>来源</span>
           <strong>{{ manga?.source ?? '-' }}</strong>
         </div>
         <div class="surface-card stat-card">
-          <span>Saved</span>
+          <span>保存</span>
           <strong>{{ savedDate }}</strong>
         </div>
       </section>
 
       <section class="chapters-section">
         <div class="section-head">
-          <h2>Pages</h2>
-          <span>{{ manga?.imageCount ?? 0 }} total</span>
+          <h2>页面</h2>
+          <span>共 {{ manga?.imageCount ?? 0 }} 页</span>
         </div>
         <button class="chapter-card surface-card" type="button" @click="readNow">
           <div>
-            <strong>Continue reading</strong>
+            <strong>继续阅读</strong>
             <p>{{ progressLabel }}</p>
           </div>
           <ChevronRight :size="22" />
@@ -89,8 +89,8 @@ const progressPercent = computed(() => {
 
 const progressLabel = computed(() => {
   const value = progress.value
-  if (!value) return 'Not started'
-  return `Page ${value.lastIndex + 1} of ${value.totalImages}`
+  if (!value) return '尚未开始'
+  return `第 ${value.lastIndex + 1} / ${value.totalImages} 页`
 })
 
 const savedDate = computed(() => {
@@ -272,4 +272,3 @@ function toggleReadLater() {
   color: rgba(209, 197, 183, 0.62);
 }
 </style>
-

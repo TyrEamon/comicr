@@ -1,13 +1,13 @@
 <template>
   <div class="page cloud-page">
     <section class="storage-overview">
-      <p class="label-caps">Cloud Sync</p>
+      <p class="label-caps">云盘同步</p>
       <div class="storage-row">
         <div>
-          <h1 class="page-title">Total Storage</h1>
-          <p class="page-subtitle">Local provider first, WebDAV next.</p>
+          <h1 class="page-title">总存储</h1>
+          <p class="page-subtitle">先用本地导入打通链路，下一步接 WebDAV。</p>
         </div>
-        <strong>{{ library.count }} books</strong>
+        <strong>{{ library.count }} 本</strong>
       </div>
       <div class="storage-bar">
         <div style="width: 24%" />
@@ -22,7 +22,7 @@
         </div>
         <div>
           <h2>{{ provider.name }}</h2>
-          <p>{{ provider.connected ? 'Connected' : 'Not connected' }}</p>
+          <p>{{ provider.connected ? '已连接' : '未连接' }}</p>
           <small>{{ provider.description }}</small>
         </div>
         <button
@@ -31,20 +31,20 @@
           :disabled="!provider.connected"
           @click="selectProvider(provider.id)"
         >
-          Open
+          打开
         </button>
       </article>
     </section>
 
     <section v-if="selectedProvider === 'local-archive'" class="local-import surface-card">
       <div>
-        <p class="label-caps">Local Provider</p>
-        <h2>Import ZIP / CBZ</h2>
-        <p>Use this as the MVP cloud lane. It validates the same import path before WebDAV is added.</p>
+        <p class="label-caps">本地导入</p>
+        <h2>导入 ZIP / CBZ</h2>
+        <p>这条链路用于先验证云盘导入流程。等它稳定后，再接入 WebDAV。</p>
       </div>
       <button class="primary-button" type="button" @click="fileInput?.click()">
         <Archive :size="18" />
-        Choose File
+        选择文件
       </button>
       <input ref="fileInput" class="hidden-input" type="file" accept=".zip,.cbz,application/zip" @change="handleImport" />
     </section>
@@ -80,13 +80,13 @@ async function handleImport(event: Event) {
   const file = input.files?.[0]
   if (!file) return
 
-  message.value = 'Importing from local provider...'
+  message.value = '正在从本地导入...'
   try {
     const result = await cloudService.importArchive(file)
     await library.load()
-    message.value = `Imported ${result.title} (${result.fileCount} pages)`
+    message.value = `已导入 ${result.title}（${result.fileCount} 页）`
   } catch (error) {
-    message.value = error instanceof Error ? error.message : 'Cloud import failed'
+    message.value = error instanceof Error ? error.message : '云盘导入失败'
   } finally {
     input.value = ''
   }
@@ -209,4 +209,3 @@ async function handleImport(event: Event) {
   font-size: 13px;
 }
 </style>
-

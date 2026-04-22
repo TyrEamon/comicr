@@ -1,4 +1,4 @@
-# Comics App Mobile Cloud Reader Task
+# 漫画云读手机端任务
 
 ## 一句话目标
 
@@ -63,9 +63,9 @@ src/services/
 
 这些 service 模拟 PC 端 API 的形状，方便以后替换为远程 Go/Python server。
 
-### D-006：云盘先做 Local Provider / WebDAV
+### D-006：云盘先做本地导入 / WebDAV
 
-Google Drive、OneDrive OAuth 不进 MVP。先用 Local Provider 验证导入链路，再做 WebDAV。OAuth 类 provider 放后续版本。
+Google Drive、OneDrive OAuth 不进 MVP。先用“本地导入”验证导入链路，再做 WebDAV。OAuth 类云盘放后续版本。
 
 ### D-007：先让空壳 APK 跑起来
 
@@ -83,7 +83,7 @@ Google Drive、OneDrive OAuth 不进 MVP。先用 Local Provider 验证导入链
 - 本地存储：Capacitor Preferences / SQLite 可选
 - 文件读写：Capacitor Filesystem
 - 网络请求：浏览器 fetch 或 Capacitor HTTP 插件
-- 云盘 MVP：先做 Local Provider / WebDAV Provider
+- 云盘 MVP：先做本地导入 / WebDAV
 
 ### 为什么不用 Wails 做手机端
 
@@ -169,7 +169,7 @@ Comics-app/
 - 安装 Pinia、Vue Router、Tailwind、lucide-vue-next。
 - 初始化 Capacitor：
   - appId：`com.tyr.comicsapp`
-  - appName：`Comics App`
+  - appName：`漫画云读`
   - webDir：`dist`
 - 添加 Android 平台目录。
 - 不需要本机安装 Android Studio；Android 构建交给 GitHub Actions。
@@ -216,17 +216,17 @@ Comics-app/
 
 路由：
 
-- `/`：Library
-- `/online`：Explore
-- `/download`：Downloads
-- `/cloud`：Cloud
-- `/setting`：Settings
+- `/`：书库
+- `/online`：发现
+- `/download`：下载
+- `/cloud`：云盘
+- `/setting`：设置
 - `/manga/:id`：详情
 - `/reader/:id`：阅读器
 
 任务：
 
-- 底部导航：Library、Explore、Downloads、Cloud。
+- 底部导航：书库、发现、下载、云盘。
 - 详情页和阅读器隐藏底部导航。
 - 顶部栏提供菜单、标题、搜索/更多。
 
@@ -251,10 +251,10 @@ Comics-app/
 
 - 两列封面网格，封面比例 3:4。
 - Tabs：
-  - Library：全部
-  - Bookmarks：收藏
-  - Watch Later：稍后看
-  - Downloads：跳转下载页
+  - 书库：全部
+  - 收藏：收藏
+  - 稍后看：稍后阅读列表
+  - 下载：跳转下载页
 - 支持搜索、排序、空状态。
 - 数据来自 `libraryService`。
 
@@ -277,14 +277,14 @@ Comics-app/
 任务：
 
 - 大封面头图 + 暗色渐变。
-- 主按钮：`Read Now`。
+- 主按钮：`开始阅读`。
 - 图标按钮：收藏、稍后看、更多。
 - 显示标题、作者/来源、图片数量、阅读进度。
 
 验收：
 
 - 从书库进入详情可正常返回。
-- `Read Now` 进入阅读器。
+- `开始阅读` 进入阅读器。
 
 ### FE-6 阅读器
 
@@ -328,13 +328,13 @@ Comics-app/
 - `downloadService.start(url)` 创建任务。
 - 任务卡片展示名称、URL、状态、进度、当前/总数。
 - 支持取消任务。
-- Active / Completed tabs。
+- `进行中 / 已完成` 两个标签页。
 
 验收：
 
 - 粘贴链接后创建下载任务。
 - 任务进度刷新。
-- 完成后出现在 Completed。
+- 完成后出现在 `已完成`。
 
 ### FE-8 云盘页 MVP
 
@@ -352,14 +352,14 @@ Comics-app/
 - 点击 provider 进入文件列表。
 - 选择目录导入到本地书库。
 - 第一阶段 provider：
-  - Local Provider：模拟云盘，用于验证导入链路。
-  - WebDAV Provider：可作为第二步。
+  - 本地导入：模拟云盘，用于验证导入链路。
+  - WebDAV：可作为第二步。
 
 验收：
 
 - 能浏览 provider 文件。
 - 能导入图片目录。
-- 导入后 Library 出现新漫画。
+- 导入后书库出现新漫画。
 
 ## Service 层任务
 
@@ -524,12 +524,12 @@ jobs:
 1. 初始化 `Comics-app/front`：Vue + Capacitor。
 2. 添加 GitHub Actions，先让空壳 APK 能构建出来。
 3. 实现设计系统和移动端壳。
-4. 实现本地书库数据模型和 Library 页面。
+4. 实现本地书库数据模型和书库页面。
 5. 实现详情页和阅读器。
 6. 实现下载页和最小下载 service。
-7. 实现 cloudService 的 Local Provider。
+7. 实现 cloudService 的本地导入 provider。
 8. 实现云盘导入到本地书库。
-9. 再补 Explore/在线源。
+9. 再补发现页/在线源。
 
 ## 继续讨论清单
 
@@ -537,8 +537,8 @@ jobs:
 
 1. 本地漫画来源：只从 App 内下载/云盘导入，还是也允许用户从手机文件选择器导入本地目录/压缩包。
 2. 下载来源优先级：第一版要支持哪些站点或链接格式，是否只先支持 PC 项目里最稳定的 1-2 个。
-3. 云盘 MVP：第一版只做 Local Provider，还是直接加 WebDAV。
-4. 在线源：Explore 是 MVP 必须有，还是先把本地书库、下载、云盘导入跑通后再做。
+3. 云盘 MVP：第一版只做本地导入，还是直接加 WebDAV。
+4. 在线源：发现页是 MVP 必须有，还是先把本地书库、下载、云盘导入跑通后再做。
 5. 漫画文件格式：第一版只支持图片目录，还是必须支持 zip/cbz。
 6. 数据持久化：第一版用 Preferences + JSON，还是直接引入 SQLite。
 7. APK 分发：只要 debug APK artifact，还是需要后续做签名 release APK。
@@ -566,15 +566,15 @@ GitHub：
 
 完整 MVP 验收路径：
 
-1. 打开 APK 进入 Library。
-2. 从 Cloud Local Provider 导入一个图片目录。
-3. Library 出现新漫画。
+1. 打开 APK 进入书库。
+2. 从云盘页的本地导入入口导入一个图片目录或压缩包。
+3. 书库出现新漫画。
 4. 进入详情页。
-5. 点击 `Read Now` 阅读。
+5. 点击 `开始阅读` 阅读。
 6. 退出后再次进入能恢复进度。
-7. 进入 Downloads，粘贴链接下载。
-8. Active tab 能看到进度。
-9. 完成后进入 Completed。
+7. 进入下载页，粘贴链接下载。
+8. `进行中` 标签页能看到进度。
+9. 完成后进入 `已完成`。
 
 ## 风险点
 

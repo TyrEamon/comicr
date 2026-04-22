@@ -37,7 +37,7 @@ function mimeFromName(name: string) {
 }
 
 function cleanArchiveTitle(name: string) {
-  return name.replace(/\.(zip|cbz)$/i, '').trim() || 'Untitled'
+  return name.replace(/\.(zip|cbz)$/i, '').trim() || '未命名漫画'
 }
 
 function randomId(prefix: string) {
@@ -101,7 +101,7 @@ export const libraryService = {
     const mangaId = randomId('manga')
     const manga: MangaItem = {
       id: mangaId,
-      title: title.trim() || 'Untitled',
+      title: title.trim() || '未命名漫画',
       localPath: mangaId,
       imageCount: images.length,
       source,

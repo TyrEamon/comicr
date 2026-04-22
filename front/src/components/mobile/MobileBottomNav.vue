@@ -21,10 +21,10 @@ import { useRoute } from 'vue-router'
 const route = useRoute()
 
 const items = [
-  { path: '/', label: 'Library', icon: BookOpen },
-  { path: '/online', label: 'Explore', icon: Compass },
-  { path: '/download', label: 'Downloads', icon: Download },
-  { path: '/cloud', label: 'Cloud', icon: Cloud },
+  { path: '/', label: '书库', icon: BookOpen },
+  { path: '/online', label: '发现', icon: Compass },
+  { path: '/download', label: '下载', icon: Download },
+  { path: '/cloud', label: '云盘', icon: Cloud },
 ]
 
 function isActive(path: string) {
@@ -32,4 +32,3 @@ function isActive(path: string) {
   return route.path.startsWith(path)
 }
 </script>
-

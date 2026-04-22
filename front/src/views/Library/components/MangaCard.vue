@@ -2,7 +2,7 @@
   <article class="manga-card">
     <button class="cover-button" type="button" @click="openDetail">
       <img v-if="coverUrl" class="cover-image" :src="coverUrl" :alt="manga.title" loading="lazy" />
-      <div v-else class="cover-empty">No Cover</div>
+      <div v-else class="cover-empty">暂无封面</div>
       <div class="cover-flags">
         <Bookmark v-if="shelf.favorite" :size="22" fill="currentColor" />
       </div>
@@ -10,17 +10,17 @@
 
     <div class="card-copy">
       <button class="title-button" type="button" @click="openDetail">{{ manga.title }}</button>
-      <p>{{ manga.imageCount }} pages · {{ sourceLabel }}</p>
+      <p>{{ manga.imageCount }} 页 · {{ sourceLabel }}</p>
     </div>
 
     <div class="card-actions" aria-label="Shelf actions">
-      <button class="mini-action" :class="{ active: shelf.favorite }" type="button" aria-label="Bookmark" @click="$emit('favorite', manga.id)">
+      <button class="mini-action" :class="{ active: shelf.favorite }" type="button" aria-label="收藏" @click="$emit('favorite', manga.id)">
         <Bookmark :size="16" :fill="shelf.favorite ? 'currentColor' : 'none'" />
       </button>
-      <button class="mini-action" :class="{ active: shelf.readLater }" type="button" aria-label="Read later" @click="$emit('readLater', manga.id)">
+      <button class="mini-action" :class="{ active: shelf.readLater }" type="button" aria-label="稍后看" @click="$emit('readLater', manga.id)">
         <Clock3 :size="16" />
       </button>
-      <button class="mini-action" :class="{ active: shelf.pinned }" type="button" aria-label="Pin" @click="$emit('pin', manga.id)">
+      <button class="mini-action" :class="{ active: shelf.pinned }" type="button" aria-label="置顶" @click="$emit('pin', manga.id)">
         <Pin :size="16" />
       </button>
     </div>
@@ -50,13 +50,13 @@ const router = useRouter()
 const sourceLabel = computed(() => {
   switch (props.manga.source) {
     case 'cloud':
-      return 'Cloud'
+      return '云盘'
     case 'download':
-      return 'Download'
+      return '下载'
     case 'sample':
-      return 'Sample'
+      return '示例'
     default:
-      return 'Archive'
+      return '导入'
   }
 })
 
@@ -153,4 +153,3 @@ function openDetail() {
   background: rgba(184, 155, 114, 0.1);
 }
 </style>
-

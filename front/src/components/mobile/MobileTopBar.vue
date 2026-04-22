@@ -1,15 +1,15 @@
 <template>
   <header class="top-bar">
-    <button class="top-icon" type="button" aria-label="Menu">
+    <button class="top-icon" type="button" aria-label="菜单">
       <Menu :size="24" />
     </button>
 
     <div class="top-title">
-      <span class="brand">ZenReader</span>
+      <span class="brand">漫画云读</span>
       <span class="section">{{ title }}</span>
     </div>
 
-    <button class="top-icon" type="button" aria-label="Search">
+    <button class="top-icon" type="button" aria-label="搜索">
       <Search :size="24" />
     </button>
   </header>
@@ -22,4 +22,3 @@ defineProps<{
   title: string
 }>()
 </script>
-

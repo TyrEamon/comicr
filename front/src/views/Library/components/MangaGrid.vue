@@ -1,5 +1,5 @@
 <template>
-  <section class="manga-grid" aria-label="Manga library">
+  <section class="manga-grid" aria-label="漫画书库">
     <MangaCard
       v-for="manga in mangas"
       :key="manga.id"
@@ -43,4 +43,3 @@ defineEmits<{
   }
 }
 </style>
-

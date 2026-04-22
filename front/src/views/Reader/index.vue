@@ -1,6 +1,6 @@
 <template>
   <div class="reader-view" @click="toggleControls">
-    <div v-if="loading" class="reader-loading">Loading pages...</div>
+    <div v-if="loading" class="reader-loading">正在加载页面...</div>
 
     <template v-else>
       <img
@@ -12,27 +12,27 @@
       />
 
       <div v-if="controlsVisible" class="reader-top" @click.stop>
-        <button class="reader-icon" type="button" aria-label="Back" @click="router.back()">
+        <button class="reader-icon" type="button" aria-label="返回" @click="router.back()">
           <ArrowLeft :size="24" />
         </button>
         <div>
-          <span>Library</span>
-          <strong>{{ manga?.title || 'Reader' }}</strong>
+          <span>书库</span>
+          <strong>{{ manga?.title || '阅读器' }}</strong>
         </div>
-        <button class="reader-icon" type="button" aria-label="Bookmark">
+        <button class="reader-icon" type="button" aria-label="收藏">
           <Bookmark :size="22" />
         </button>
       </div>
 
       <div v-if="controlsVisible" class="reader-bottom" @click.stop>
         <div class="reader-actions">
-          <button class="reader-tool" type="button" aria-label="Previous page" @click="previousPage">
+          <button class="reader-tool" type="button" aria-label="上一页" @click="previousPage">
             <ChevronLeft :size="24" />
           </button>
-          <button class="reader-tool active" type="button" aria-label="Reading mode">
+          <button class="reader-tool active" type="button" aria-label="阅读模式">
             <PanelTop :size="22" />
           </button>
-          <button class="reader-tool" type="button" aria-label="Next page" @click="nextPage">
+          <button class="reader-tool" type="button" aria-label="下一页" @click="nextPage">
             <ChevronRight :size="24" />
           </button>
         </div>
@@ -45,11 +45,11 @@
             min="0"
             :max="Math.max(0, images.length - 1)"
             step="1"
-            aria-label="Page progress"
+            aria-label="阅读进度"
           />
           <span>{{ images.length }}</span>
         </div>
-        <div class="progress-label">Page Progress</div>
+        <div class="progress-label">阅读进度</div>
       </div>
     </template>
   </div>

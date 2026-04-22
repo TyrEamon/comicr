@@ -3,12 +3,12 @@ import type { CloudFile, ImportResult, ProviderSummary } from './types'
 
 const LOCAL_PROVIDER: ProviderSummary = {
   id: 'local-archive',
-  name: 'Local Archive',
+  name: '本地导入',
   type: 'local',
   connected: true,
   usedBytes: 0,
   totalBytes: 0,
-  description: 'Use a local ZIP or CBZ file as the first cloud import path.',
+  description: '使用本地 ZIP 或 CBZ 文件，先打通云盘导入的同一条链路。',
 }
 
 const WEBDAV_PROVIDER: ProviderSummary = {
@@ -18,7 +18,7 @@ const WEBDAV_PROVIDER: ProviderSummary = {
   connected: false,
   usedBytes: 0,
   totalBytes: 0,
-  description: 'Planned provider for NAS and WebDAV-compatible cloud drives.',
+  description: '计划用于 NAS 和兼容 WebDAV 的云盘。',
 }
 
 export const cloudService = {
@@ -34,7 +34,7 @@ export const cloudService = {
     return [
       {
         id: 'local-import',
-        name: 'Import ZIP / CBZ',
+        name: '导入 ZIP / CBZ',
         path: 'local-import',
         isDir: false,
         sizeBytes: 0,
@@ -52,4 +52,3 @@ export const cloudService = {
     }
   },
 }
-
