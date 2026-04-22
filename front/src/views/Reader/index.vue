@@ -17,19 +17,16 @@
         @touchstart.passive="handleGalleryTouchStart"
         @touchend.passive="handleGalleryTouchEnd"
       >
-        <Transition name="reader-image-fade" mode="out-in">
-          <img
-            v-if="currentImage?.src"
-            :key="currentImage.id"
-            class="reader-image"
-            :class="{ 'fit-width': fitMode === 'width' }"
-            :src="currentImage.src"
-            :alt="currentImage.name"
-            :style="imageStyle"
-            @click.stop="handleGalleryTap"
-          />
-          <div v-else key="reader-placeholder" class="reader-image-placeholder" @click.stop="handleGalleryTap">正在加载当前页...</div>
-        </Transition>
+        <img
+          v-if="currentImage?.src"
+          class="reader-image"
+          :class="{ 'fit-width': fitMode === 'width' }"
+          :src="currentImage.src"
+          :alt="currentImage.name"
+          :style="imageStyle"
+          @click.stop="handleGalleryTap"
+        />
+        <div v-else class="reader-image-placeholder" @click.stop="handleGalleryTap">正在加载当前页...</div>
       </div>
 
       <div
@@ -1066,18 +1063,6 @@ function handleContinuousScroll() {
 
 .drawer-chip {
   width: 100%;
-}
-
-.reader-image-fade-enter-active,
-.reader-image-fade-leave-active {
-  transition: opacity 150ms ease, transform 180ms ease;
-  will-change: opacity, transform;
-}
-
-.reader-image-fade-enter-from,
-.reader-image-fade-leave-to {
-  opacity: 0;
-  transform: scale(0.996);
 }
 
 .reader-top-slide-enter-active,
