@@ -77,6 +77,7 @@
 import IconButton from '@/components/mobile/IconButton.vue'
 import { cloudDownloadService } from '@/services/cloudDownloadService'
 import { cloudService } from '@/services/cloudService'
+import { downloadService } from '@/services/downloadService'
 import { libraryService } from '@/services/libraryService'
 import type { MangaItem } from '@/services/types'
 import { useLibraryStore } from '@/stores/libraryStore'
@@ -92,16 +93,18 @@ const coverUrl = ref('')
 const downloadBusy = ref(false)
 const downloadMessage = ref('')
 const cloudDownloaded = ref(false)
+const cloudDownloadQueued = ref(false)
 
 const mangaId = computed(() => String(route.params.id))
 const shelf = computed(() => library.getShelfState(mangaId.value))
 const progress = computed(() => libraryService.getProgress(mangaId.value))
 const isCloudManga = computed(() => Boolean(manga.value?.source === 'cloud' || cloudService.isWebDavReaderId(mangaId.value)))
 const downloadAvailable = computed(() => Boolean(manga.value && (!isCloudManga.value || cloudDownloaded.value)))
-const downloadButtonDisabled = computed(() => !manga.value || downloadBusy.value || downloadAvailable.value)
+const downloadButtonDisabled = computed(() => !manga.value || downloadBusy.value || downloadAvailable.value || cloudDownloadQueued.value)
 const downloadButtonLabel = computed(() => {
   if (!manga.value) return '等待加载'
   if (downloadBusy.value) return '下载中'
+  if (cloudDownloadQueued.value) return '队列中'
   return downloadAvailable.value ? '已下载' : '下载'
 })
 const sourcePillLabel = computed(() => isCloudManga.value ? '云盘 · WebDAV' : '本地 · 手机端')
@@ -164,29 +167,26 @@ function toggleReadLater() {
 function refreshDownloadState() {
   if (!isCloudManga.value) {
     cloudDownloaded.value = false
+    cloudDownloadQueued.value = false
     return
   }
-  cloudDownloaded.value = cloudDownloadService.isWebDavDownloaded(cloudService.pathFromReaderId(mangaId.value))
+  const path = cloudService.pathFromReaderId(mangaId.value)
+  cloudDownloaded.value = cloudDownloadService.isWebDavDownloaded(path)
+  cloudDownloadQueued.value = Boolean(downloadService.findActiveWebDavTask(path))
 }
 
 async function downloadCloudManga() {
-  if (!manga.value || !isCloudManga.value || downloadBusy.value || cloudDownloaded.value) return
+  if (!manga.value || !isCloudManga.value || downloadBusy.value || cloudDownloaded.value || cloudDownloadQueued.value) return
 
   downloadBusy.value = true
   downloadMessage.value = '正在准备下载...'
 
   try {
-    const result = await cloudDownloadService.downloadWebDavManga(
-      cloudService.pathFromReaderId(mangaId.value),
-      (progress) => {
-        downloadMessage.value = `正在下载 ${progress.current}/${progress.total}`
-      },
-    )
-    cloudDownloaded.value = true
-    downloadMessage.value = `已下载到 ${result.outputPath}`
-    await library.load()
+    await downloadService.startWebDav(cloudService.pathFromReaderId(mangaId.value), manga.value.title)
+    cloudDownloadQueued.value = true
+    downloadMessage.value = '已加入下载队列，可在下载页查看'
   } catch (error) {
-    downloadMessage.value = error instanceof Error ? error.message : '下载失败'
+    downloadMessage.value = error instanceof Error ? error.message : '创建下载任务失败'
   } finally {
     downloadBusy.value = false
   }

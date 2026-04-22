@@ -28,7 +28,7 @@
           </div>
           <div class="task-copy">
             <h2>{{ task.name }}</h2>
-            <p>{{ task.url }}</p>
+            <p>{{ formatTaskAddress(task) }}</p>
             <div class="task-meta">
               <span>{{ formatStatus(task.status) }}</span>
               <span>{{ task.current }} / {{ task.total || '-' }}</span>
@@ -85,6 +85,7 @@ const visibleTasks = computed(() => {
 
 onMounted(() => {
   refresh()
+  downloadService.processQueue()
   pollTimer = window.setInterval(refresh, 900)
 })
 
@@ -135,6 +136,13 @@ function formatStatus(status: DownloadStatus) {
     cancelled: '已取消',
   }
   return labels[status]
+}
+
+function formatTaskAddress(task: DownloadTask) {
+  if (task.source === 'webdav') {
+    return `WebDAV ${task.remotePath || task.url.replace(/^webdav:/, '')}`
+  }
+  return task.url
 }
 
 function progressPercent(task: DownloadTask) {

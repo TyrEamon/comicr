@@ -1,9 +1,12 @@
 import { libraryService } from './libraryService'
 import { downloadTargetService } from './downloadTargetService'
+import { cloudDownloadService } from './cloudDownloadService'
 import type { DownloadTask } from './types'
 
 const TASKS_KEY = 'comics-app:downloads:v1'
 const IMAGE_URL_RE = /\.(jpg|jpeg|png|webp|gif|bmp|avif)(\?.*)?$/i
+const ACTIVE_STATUSES = new Set(['pending', 'parsing', 'downloading'])
+let queueRunning = false
 
 function loadTasks() {
   try {
@@ -30,6 +33,25 @@ function setTask(task: DownloadTask) {
 
 function taskId() {
   return `task-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function normalizePath(path: string) {
+  const segments = path.split('/').map((segment) => segment.trim()).filter(Boolean)
+  return segments.length > 0 ? `/${segments.join('/')}` : ''
+}
+
+function isActiveTask(task: DownloadTask) {
+  return ACTIVE_STATUSES.has(task.status)
+}
+
+function nextQueuedTask() {
+  return loadTasks()
+    .filter((task) => task.status === 'pending')
+    .sort((left, right) => left.createdAt - right.createdAt)[0]
+}
+
+function isTaskCancelled(taskIdValue: string) {
+  return loadTasks().find((item) => item.id === taskIdValue)?.status === 'cancelled'
 }
 
 function resolveUrl(rawUrl: string, baseUrl: string) {
@@ -83,7 +105,7 @@ export const downloadService = {
   },
 
   activeTasks() {
-    return this.listTasks().filter((task) => !['completed', 'failed', 'cancelled'].includes(task.status))
+    return this.listTasks().filter(isActiveTask)
   },
 
   completedTasks() {
@@ -101,6 +123,7 @@ export const downloadService = {
       id: taskId(),
       url: trimmed,
       name: '准备下载',
+      source: 'link',
       status: 'pending',
       current: 0,
       total: 0,
@@ -109,8 +132,45 @@ export const downloadService = {
     }
 
     setTask(task)
-    void this.run(task)
+    this.processQueue()
     return task
+  },
+
+  async startWebDav(path: string, title?: string) {
+    const normalizedPath = normalizePath(path)
+    if (!normalizedPath) {
+      throw new Error('WebDAV 路径为空')
+    }
+
+    const existingTask = this.findActiveWebDavTask(normalizedPath)
+    if (existingTask) return existingTask
+
+    const now = Date.now()
+    const task: DownloadTask = {
+      id: taskId(),
+      url: `webdav:${normalizedPath}`,
+      name: title?.trim() || '准备下载云盘漫画',
+      source: 'webdav',
+      remotePath: normalizedPath,
+      status: 'pending',
+      current: 0,
+      total: 0,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    setTask(task)
+    this.processQueue()
+    return task
+  },
+
+  findActiveWebDavTask(path: string) {
+    const normalizedPath = normalizePath(path)
+    return this.listTasks().find((task) => (
+      task.source === 'webdav'
+      && normalizePath(task.remotePath || task.url.replace(/^webdav:/, '')) === normalizedPath
+      && isActiveTask(task)
+    ))
   },
 
   cancel(taskIdValue: string) {
@@ -122,6 +182,11 @@ export const downloadService = {
   },
 
   async run(task: DownloadTask) {
+    if (task.source === 'webdav') {
+      await this.runWebDav(task)
+      return
+    }
+
     try {
       setTask({ ...task, status: 'parsing', name: '正在解析链接', updatedAt: Date.now() })
 
@@ -210,5 +275,78 @@ export const downloadService = {
         updatedAt: Date.now(),
       })
     }
+  },
+
+  async runWebDav(task: DownloadTask) {
+    const remotePath = normalizePath(task.remotePath || task.url.replace(/^webdav:/, ''))
+    let currentTask: DownloadTask = {
+      ...task,
+      remotePath,
+      source: 'webdav',
+      status: 'parsing',
+      updatedAt: Date.now(),
+    }
+    setTask(currentTask)
+
+    try {
+      const result = await cloudDownloadService.downloadWebDavManga(
+        remotePath,
+        (progress) => {
+          currentTask = {
+            ...currentTask,
+            name: progress.title,
+            status: 'downloading',
+            current: progress.current,
+            total: progress.total,
+            updatedAt: Date.now(),
+          }
+          setTask(currentTask)
+        },
+        {
+          shouldCancel: () => isTaskCancelled(task.id),
+        },
+      )
+
+      if (isTaskCancelled(task.id)) return
+
+      setTask({
+        ...currentTask,
+        name: result.manga.title,
+        status: 'completed',
+        mangaId: result.manga.id,
+        outputPath: result.outputPath,
+        current: result.manga.imageCount,
+        total: result.manga.imageCount,
+        completedAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    } catch (error) {
+      if (isTaskCancelled(task.id)) return
+
+      setTask({
+        ...currentTask,
+        status: 'failed',
+        error: error instanceof Error ? error.message : '下载失败',
+        completedAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    }
+  },
+
+  processQueue() {
+    if (queueRunning) return
+    queueRunning = true
+
+    void (async () => {
+      try {
+        let task = nextQueuedTask()
+        while (task) {
+          await this.run(task)
+          task = nextQueuedTask()
+        }
+      } finally {
+        queueRunning = false
+      }
+    })()
   },
 }

@@ -144,8 +144,8 @@
               v-if="isCloudReader"
               class="reader-tool"
               type="button"
-              :aria-label="cloudDownloaded ? '已下载当前漫画' : '下载当前漫画'"
-              :disabled="downloadBusy || cloudDownloaded"
+              :aria-label="cloudDownloadButtonLabel"
+              :disabled="downloadBusy || cloudDownloaded || cloudDownloadQueued"
               @click="downloadCurrentCloudManga"
             >
               <Check v-if="cloudDownloaded" :size="23" />
@@ -200,6 +200,7 @@
 <script setup lang="ts">
 import { cloudService } from '@/services/cloudService'
 import { cloudDownloadService } from '@/services/cloudDownloadService'
+import { downloadService } from '@/services/downloadService'
 import { libraryService } from '@/services/libraryService'
 import { readerService, type ReaderFitMode, type ReaderMode } from '@/services/readerService'
 import type { ImageAsset, MangaItem } from '@/services/types'
@@ -225,6 +226,7 @@ const readerSettingsVisible = ref(false)
 const downloadBusy = ref(false)
 const downloadMessage = ref('')
 const cloudDownloaded = ref(false)
+const cloudDownloadQueued = ref(false)
 const readerMode = ref<ReaderMode>(preferences.mode)
 const fitMode = ref<ReaderFitMode>(preferences.fitMode)
 const continuousContainer = ref<HTMLElement | null>(null)
@@ -244,6 +246,11 @@ const currentImage = computed(() => images.value[currentIndex.value] ?? null)
 const isContinuousMode = computed(() => readerMode.value === 'continuous')
 const lastImageIndex = computed(() => Math.max(0, images.value.length - 1))
 const imageStyle = computed(() => ({ filter: `brightness(${brightness.value}%)` }))
+const cloudDownloadButtonLabel = computed(() => {
+  if (cloudDownloaded.value) return '已下载当前漫画'
+  if (cloudDownloadQueued.value) return '当前漫画已在下载队列'
+  return '下载当前漫画'
+})
 
 onMounted(async () => {
   loading.value = true
@@ -251,7 +258,9 @@ onMounted(async () => {
   continuousFrames.value = []
   try {
     if (isCloudReader.value) {
-      cloudDownloaded.value = cloudDownloadService.isWebDavDownloaded(cloudService.pathFromReaderId(mangaId.value))
+      const path = cloudService.pathFromReaderId(mangaId.value)
+      cloudDownloaded.value = cloudDownloadService.isWebDavDownloaded(path)
+      cloudDownloadQueued.value = Boolean(downloadService.findActiveWebDavTask(path))
       const remoteManga = await cloudService.getWebDavReaderAssets(mangaId.value)
       manga.value = {
         id: remoteManga.id,
@@ -414,7 +423,7 @@ function reloadCurrentPage() {
 }
 
 async function downloadCurrentCloudManga() {
-  if (!isCloudReader.value || downloadBusy.value || cloudDownloaded.value) return
+  if (!isCloudReader.value || downloadBusy.value || cloudDownloaded.value || cloudDownloadQueued.value) return
 
   downloadBusy.value = true
   downloadMessage.value = '正在准备下载...'
@@ -425,16 +434,11 @@ async function downloadCurrentCloudManga() {
   window.clearTimeout(hideTimer)
 
   try {
-    const result = await cloudDownloadService.downloadWebDavManga(
-      cloudService.pathFromReaderId(mangaId.value),
-      (progress) => {
-        downloadMessage.value = `正在下载 ${progress.current}/${progress.total}`
-      },
-    )
-    cloudDownloaded.value = true
-    downloadMessage.value = `已下载到 ${result.outputPath}`
+    await downloadService.startWebDav(cloudService.pathFromReaderId(mangaId.value), manga.value?.title)
+    cloudDownloadQueued.value = true
+    downloadMessage.value = '已加入下载队列，可在下载页查看'
   } catch (error) {
-    downloadMessage.value = error instanceof Error ? error.message : '下载失败'
+    downloadMessage.value = error instanceof Error ? error.message : '创建下载任务失败'
   } finally {
     downloadBusy.value = false
     scheduleHide()

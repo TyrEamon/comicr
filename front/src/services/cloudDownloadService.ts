@@ -10,6 +10,10 @@ export interface CloudDownloadProgress {
   total: number
 }
 
+interface WebDavDownloadOptions {
+  shouldCancel?: () => boolean
+}
+
 function normalizePath(path: string) {
   const segments = path.split('/').map((segment) => segment.trim()).filter(Boolean)
   return segments.length > 0 ? `/${segments.join('/')}` : ''
@@ -32,7 +36,7 @@ export const cloudDownloadService = {
     return Boolean(loadDownloadedRecords()[normalizePath(path)])
   },
 
-  async downloadWebDavManga(path: string, onProgress?: (progress: CloudDownloadProgress) => void) {
+  async downloadWebDavManga(path: string, onProgress?: (progress: CloudDownloadProgress) => void, options?: WebDavDownloadOptions) {
     const normalizedPath = normalizePath(path)
     const remoteManga = await cloudService.getWebDavDownloadItems(path)
     const imageRefs: Array<{ name: string; type?: string; uri: string }> = []
@@ -40,7 +44,15 @@ export const cloudDownloadService = {
     let outputPath = downloadTargetService.getTargetLabel()
 
     for (const [index, file] of remoteManga.files.entries()) {
+      if (options?.shouldCancel?.()) {
+        throw new Error('下载已取消')
+      }
+
       const blob = await cloudService.fetchWebDavBlob(file.path)
+
+      if (options?.shouldCancel?.()) {
+        throw new Error('下载已取消')
+      }
 
       if (downloadTargetService.isAvailable()) {
         const writtenImage = await downloadTargetService.writeImage(remoteManga.title, file.name, file.type, blob)
@@ -63,6 +75,10 @@ export const cloudDownloadService = {
         current: index + 1,
         total: remoteManga.files.length,
       })
+    }
+
+    if (options?.shouldCancel?.()) {
+      throw new Error('下载已取消')
     }
 
     const manga = imageRefs.length > 0
