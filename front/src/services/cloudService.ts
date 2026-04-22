@@ -1,5 +1,6 @@
 import { getRecord, putRecord } from './db'
 import type { CloudFile, CloudMangaItem, ImageAsset, ProviderSummary, WebDavConfig } from './types'
+import { Capacitor, registerPlugin } from '@capacitor/core'
 
 const WEBDAV_CONFIG_KEY = 'comics-app:webdav-config:v1'
 const WEBDAV_PREVIEW_KEY = 'comics-app:webdav-preview:v1'
@@ -31,6 +32,33 @@ interface WebDavPreviewRecord {
   imageCount: number
   firstImagePath?: string
 }
+
+interface NativeWebDavPropfindResult {
+  status: number
+  data: string
+}
+
+interface NativeWebDavFileResult {
+  status: number
+  mimeType: string
+  base64: string
+}
+
+interface NativeWebDavPlugin {
+  propfind(options: {
+    url: string
+    authorization: string
+    depth: string
+    body: string
+  }): Promise<NativeWebDavPropfindResult>
+  getFile(options: {
+    url: string
+    authorization: string
+  }): Promise<NativeWebDavFileResult>
+}
+
+const nativeWebDav = registerPlugin<NativeWebDavPlugin>('WebDav')
+const WEBDAV_PROPFIND_BODY = '<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><displayname/><getcontentlength/><getlastmodified/><resourcetype/></prop></propfind>'
 
 function normalizeEndpointUrl(value: string) {
   const trimmed = value.trim()
@@ -156,6 +184,19 @@ function encodeBasicAuth(username: string, password: string) {
   return `Basic ${btoa(unescape(encodeURIComponent(`${username}:${password}`)))}`
 }
 
+function base64ToBlob(base64: string, type: string) {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return new Blob([bytes], { type })
+}
+
+function isAndroidNative() {
+  return Capacitor.getPlatform() === 'android'
+}
+
 function getRootUrl(config: WebDavConfig) {
   const rootUrl = new URL(config.endpointUrl)
   const libraryPath = normalizeRelativePath(config.libraryPath)
@@ -239,21 +280,37 @@ async function propfind(relativePath = '', depth = 1) {
     throw new Error('请先在云盘页填写 WebDAV 连接')
   }
 
-  const response = await fetch(buildResourceUrl(config, relativePath, true), {
-    method: 'PROPFIND',
-    headers: {
-      Authorization: encodeBasicAuth(config.username, config.password),
-      Depth: String(depth),
-      'Content-Type': 'application/xml; charset=utf-8',
-    },
-    body: '<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><displayname/><getcontentlength/><getlastmodified/><resourcetype/></prop></propfind>',
-  })
+  const authorization = encodeBasicAuth(config.username, config.password)
+  let status = 0
+  let xml = ''
 
-  if (response.status !== 207 && !response.ok) {
-    throw new Error(`WebDAV 请求失败（${response.status}）`)
+  if (isAndroidNative()) {
+    const result = await nativeWebDav.propfind({
+      url: buildResourceUrl(config, relativePath, true).toString(),
+      authorization,
+      depth: String(depth),
+      body: WEBDAV_PROPFIND_BODY,
+    })
+    status = result.status
+    xml = result.data
+  } else {
+    const response = await fetch(buildResourceUrl(config, relativePath, true), {
+      method: 'PROPFIND',
+      headers: {
+        Authorization: authorization,
+        Depth: String(depth),
+        'Content-Type': 'application/xml; charset=utf-8',
+      },
+      body: WEBDAV_PROPFIND_BODY,
+    })
+    status = response.status
+    xml = await response.text()
   }
 
-  const xml = await response.text()
+  if (status !== 207 && (status < 200 || status >= 300)) {
+    throw new Error(`WebDAV 请求失败（${status}）`)
+  }
+
   return parsePropfindResponse(xml, config, relativePath)
 }
 
@@ -263,9 +320,24 @@ async function fetchBlobByPath(relativePath: string, isDir = false) {
     throw new Error('请先连接 WebDAV')
   }
 
+  const authorization = encodeBasicAuth(config.username, config.password)
+
+  if (isAndroidNative()) {
+    const result = await nativeWebDav.getFile({
+      url: buildResourceUrl(config, relativePath, isDir).toString(),
+      authorization,
+    })
+
+    if (result.status < 200 || result.status >= 300) {
+      throw new Error(`下载远程文件失败（${result.status}）`)
+    }
+
+    return base64ToBlob(result.base64, result.mimeType)
+  }
+
   const response = await fetch(buildResourceUrl(config, relativePath, isDir), {
     headers: {
-      Authorization: encodeBasicAuth(config.username, config.password),
+      Authorization: authorization,
     },
   })
 
