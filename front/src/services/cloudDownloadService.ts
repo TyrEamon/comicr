@@ -60,7 +60,8 @@ export const cloudDownloadService = {
         throw new Error('下载已取消')
       }
 
-      const blob = await cloudService.fetchWebDavBlob(file.path)
+      const blob = await cloudService.getCachedWebDavImageBlob(normalizedPath, file.path)
+        ?? await cloudService.fetchWebDavBlob(file.path)
 
       if (options?.shouldCancel?.()) {
         throw new Error('下载已取消')

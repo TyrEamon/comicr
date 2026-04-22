@@ -544,6 +544,16 @@ async function getCachedPageUrl(mangaPath: string, filePath: string) {
   return objectUrl
 }
 
+async function getCachedPageBlob(mangaPath: string, filePath: string) {
+  const cacheId = webDavPageCacheId(mangaPath, filePath)
+  const record = await getRecord<CloudPageCacheRecord>('cloudCache', cacheId)
+  if (!record?.blob) return null
+
+  record.lastAccessedAt = Date.now()
+  await putRecord('cloudCache', record)
+  return record.blob
+}
+
 async function cachePageBlob(mangaPath: string, file: WebDavImageFile, blob: Blob, index: number) {
   const cacheId = webDavPageCacheId(mangaPath, file.path)
   const now = Date.now()
@@ -921,6 +931,10 @@ export const cloudService = {
     }
     const blob = await fetchBlobByPath(file.path)
     return cachePageBlob(mangaPath, file, blob, image.index)
+  },
+
+  async getCachedWebDavImageBlob(mangaPath: string, filePath: string) {
+    return getCachedPageBlob(mangaPath, filePath)
   },
 
   releaseWebDavImageAssetSrc(mangaPath: string, image: ImageAsset) {
