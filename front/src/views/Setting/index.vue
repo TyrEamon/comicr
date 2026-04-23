@@ -156,6 +156,23 @@
       </div>
     </section>
 
+    <section class="surface-card setting-card tips-card">
+      <div class="setting-card-header">
+        <div>
+          <h2>下载链接 Tips</h2>
+          <p>下载页可粘贴作品页链接或 JM 车号。</p>
+        </div>
+        <span class="status-pill">支持格式</span>
+      </div>
+
+      <div class="tips-list">
+        <span>JM / 18Comic：jm123456、photo 链接</span>
+        <span>E-Hentai / ExHentai：gallery 链接</span>
+        <span>Telegraph：telegra.ph 文章页</span>
+        <span>WNACG / nhentai / Hitomi：作品详情页</span>
+      </div>
+    </section>
+
     <section class="surface-card setting-card storage-card">
       <div class="setting-card-header">
         <div>
@@ -631,6 +648,11 @@ function formatBytes(value: number) {
   gap: 14px;
 }
 
+.tips-card {
+  display: grid;
+  gap: 14px;
+}
+
 .setting-card-header {
   display: flex;
   align-items: flex-start;
@@ -704,6 +726,21 @@ function formatBytes(value: number) {
 .download-concurrency p {
   margin-top: 6px;
   font-size: 12px;
+}
+
+.tips-list {
+  display: grid;
+  gap: 8px;
+}
+
+.tips-list span {
+  border: 1px solid rgba(153, 143, 131, 0.14);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: rgba(229, 226, 225, 0.78);
+  background: rgba(255, 255, 255, 0.022);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .stepper-control {
