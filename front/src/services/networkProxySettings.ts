@@ -84,6 +84,30 @@ function parseTgSocks(value: string): NetworkProxySettings {
   })
 }
 
+function isTelegramHost(host: string) {
+  return ['t.me', 'telegram.me', 'telegram.dog'].includes(host.toLowerCase())
+}
+
+function isTelegramMtprotoProxy(value: string) {
+  try {
+    const url = new URL(value)
+    if (url.protocol === 'tg:' && url.hostname.toLowerCase() === 'proxy') return true
+    return isTelegramHost(url.hostname) && url.pathname.replace(/^\/+/, '').toLowerCase() === 'proxy'
+  } catch {
+    return false
+  }
+}
+
+function isTelegramSocksProxy(value: string) {
+  try {
+    const url = new URL(value)
+    if (url.protocol === 'tg:' && url.hostname.toLowerCase() === 'socks') return true
+    return isTelegramHost(url.hostname) && url.pathname.replace(/^\/+/, '').toLowerCase() === 'socks'
+  } catch {
+    return false
+  }
+}
+
 function parseUrlProxy(value: string): NetworkProxySettings {
   const url = new URL(value)
   const protocol = url.protocol.replace(':', '').toLowerCase()
@@ -103,7 +127,11 @@ export function parseProxyInput(value: string): NetworkProxySettings {
   const trimmed = value.trim()
   if (!trimmed) return { ...DEFAULT_SETTINGS }
 
-  if (/^tg:\/\/socks/i.test(trimmed)) {
+  if (isTelegramMtprotoProxy(trimmed)) {
+    throw new Error('这是 Telegram MTProto 代理，只能给 Telegram 使用；Comicr 需要 SOCKS5 或 HTTP 代理')
+  }
+
+  if (/^tg:\/\/socks/i.test(trimmed) || isTelegramSocksProxy(trimmed)) {
     return parseTgSocks(trimmed)
   }
 

@@ -115,6 +115,7 @@
         autocomplete="off"
       />
       <p class="proxy-help">开启后只影响 Comicr 内部的云盘、下载解析、图片下载和 JM 下载。</p>
+      <p v-if="proxyTestLatencyMs !== null" class="proxy-help">上次测试延迟：{{ proxyTestLatencyMs }} ms</p>
 
       <div class="cache-actions">
         <button class="ghost-button import-button" type="button" :disabled="busy" @click="saveProxySettings">
@@ -307,6 +308,7 @@ const exhentaiCookie = ref(downloadSiteSettings.getSettings().exhentaiCookie)
 const proxyInput = ref(networkProxySettings.toInputValue())
 const proxyEnabled = ref(networkProxySettings.getSettings().enabled)
 const proxySettingsVersion = ref(0)
+const proxyTestLatencyMs = ref<number | null>(null)
 const MIN_THREAD_COUNT = 1
 const MAX_CLOUD_THREAD_COUNT = 4
 const MAX_JM_THREAD_COUNT = 8
@@ -650,6 +652,8 @@ function saveProxySettings() {
     let settings = networkProxySettings.updateFromInput(proxyInput.value)
     settings = networkProxySettings.setEnabled(proxyEnabled.value)
     proxyInput.value = networkProxySettings.toInputValue(settings)
+    proxyEnabled.value = settings.enabled && settings.type !== 'off'
+    proxyTestLatencyMs.value = null
     proxySettingsVersion.value += 1
     message.value = settings.type === 'off'
       ? '未填写应用内代理，当前走手机全局网络'
@@ -670,9 +674,13 @@ async function testProxySettings() {
     if (settings.type === 'off') {
       throw new Error('请先填写代理地址')
     }
+    proxyTestLatencyMs.value = null
+    const startedAt = performance.now()
     await nativeHttpService.head('https://www.gstatic.com/generate_204')
-    message.value = `代理测试通过：${networkProxySettings.describe(settings)}`
+    proxyTestLatencyMs.value = Math.max(0, Math.round(performance.now() - startedAt))
+    message.value = `代理测试通过：${networkProxySettings.describe(settings)}，延迟 ${proxyTestLatencyMs.value} ms`
   } catch (error) {
+    proxyTestLatencyMs.value = null
     message.value = error instanceof Error ? error.message : '代理测试失败'
   } finally {
     busy.value = false
@@ -683,6 +691,7 @@ function clearProxySettings() {
   networkProxySettings.clear()
   proxyInput.value = ''
   proxyEnabled.value = false
+  proxyTestLatencyMs.value = null
   proxySettingsVersion.value += 1
   message.value = '应用内代理已关闭，当前走手机全局网络'
 }
@@ -690,8 +699,12 @@ function clearProxySettings() {
 function toggleProxyMode() {
   try {
     const settings = networkProxySettings.setEnabled(proxyEnabled.value)
+    proxyEnabled.value = settings.enabled && settings.type !== 'off'
+    proxyTestLatencyMs.value = null
     proxySettingsVersion.value += 1
-    message.value = settings.enabled ? '已启用应用内代理' : '已切回手机全局网络/代理'
+    message.value = settings.type === 'off'
+      ? '请先填写代理地址'
+      : settings.enabled ? '已启用应用内代理' : '已切回手机全局网络/代理'
   } catch (error) {
     message.value = error instanceof Error ? error.message : '切换代理模式失败'
   }
