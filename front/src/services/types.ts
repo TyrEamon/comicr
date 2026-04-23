@@ -57,7 +57,7 @@ export interface DownloadTask {
   id: string
   url: string
   name: string
-  source?: 'link' | 'webdav' | 'jm'
+  source?: 'link' | 'webdav' | 'jm' | 'telegraph'
   remotePath?: string
   outputPath?: string
   status: DownloadStatus

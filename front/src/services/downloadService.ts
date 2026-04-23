@@ -2,11 +2,13 @@ import { libraryService } from './libraryService'
 import { downloadTargetService } from './downloadTargetService'
 import { cloudDownloadService } from './cloudDownloadService'
 import { jmComicService } from './jmComicService'
+import { resolveDownloadPlan } from './downloadResolver'
+import type { DownloadPlanPage } from './downloadPlan'
 import type { DownloadTask } from './types'
 
 const TASKS_KEY = 'comics-app:downloads:v1'
-const IMAGE_URL_RE = /\.(jpg|jpeg|png|webp|gif|bmp|avif)(\?.*)?$/i
 const ACTIVE_STATUSES = new Set(['pending', 'parsing', 'downloading'])
+const FORBIDDEN_FETCH_HEADERS = new Set(['cookie', 'host', 'origin', 'referer', 'user-agent'])
 let queueRunning = false
 
 function loadTasks() {
@@ -55,49 +57,19 @@ function isTaskCancelled(taskIdValue: string) {
   return loadTasks().find((item) => item.id === taskIdValue)?.status === 'cancelled'
 }
 
-function resolveUrl(rawUrl: string, baseUrl: string) {
-  try {
-    return new URL(rawUrl, baseUrl).toString()
-  } catch {
-    return ''
-  }
-}
-
-function extractTitle(html: string, fallback: string) {
-  const title = html.match(/<title[^>]*>(.*?)<\/title>/is)?.[1]?.replace(/\s+/g, ' ').trim()
-  return title || fallback
-}
-
-function extractImageUrls(html: string, pageUrl: string) {
-  const urls = new Set<string>()
-  const patterns = [
-    /<img[^>]+(?:src|data-src|data-original)=["']([^"']+)["']/gi,
-    /["']([^"']+\.(?:jpg|jpeg|png|webp|gif|bmp|avif)(?:\?[^"']*)?)["']/gi,
-  ]
-
-  for (const pattern of patterns) {
-    let match: RegExpExecArray | null
-    while ((match = pattern.exec(html)) !== null) {
-      const resolved = resolveUrl(match[1] ?? '', pageUrl)
-      if (resolved) urls.add(resolved)
-    }
-  }
-
-  return [...urls].slice(0, 120)
-}
-
-async function fetchBlob(url: string) {
-  const response = await fetch(url)
+async function fetchBlob(page: DownloadPlanPage) {
+  const headers = Object.fromEntries(
+    Object.entries(page.headers ?? {})
+      .filter(([key]) => !FORBIDDEN_FETCH_HEADERS.has(key.toLowerCase())),
+  )
+  const response = await fetch(page.url, {
+    headers,
+    referrer: page.referer,
+  })
   if (!response.ok) {
     throw new Error(`请求失败 ${response.status}`)
   }
   return response.blob()
-}
-
-function imageNameFromUrl(url: string, index: number) {
-  const parsed = new URL(url)
-  const rawName = parsed.pathname.split('/').pop() || `${index + 1}.jpg`
-  return rawName.includes('.') ? rawName : `${rawName}.jpg`
 }
 
 export const downloadService = {
@@ -241,62 +213,56 @@ export const downloadService = {
       return
     }
 
+    let currentTask: DownloadTask = {
+      ...task,
+      status: 'parsing',
+      phase: '解析链接',
+      updatedAt: Date.now(),
+    }
     try {
-      setTask({ ...task, status: 'parsing', name: '正在解析链接', updatedAt: Date.now() })
+      setTask(currentTask)
 
-      const pageUrl = new URL(task.url).toString()
-      let title = new URL(pageUrl).hostname
-      let imageUrls: string[] = []
-
-      if (IMAGE_URL_RE.test(pageUrl)) {
-        imageUrls = [pageUrl]
-        title = imageNameFromUrl(pageUrl, 0).replace(/\.[^.]+$/, '')
-      } else {
-        const response = await fetch(pageUrl)
-        if (!response.ok) {
-          throw new Error(`页面请求失败 ${response.status}`)
-        }
-        const html = await response.text()
-        title = extractTitle(html, title)
-        imageUrls = extractImageUrls(html, pageUrl)
+      const plan = await resolveDownloadPlan(task.url)
+      currentTask = {
+        ...currentTask,
+        source: plan.source,
+        name: plan.title,
+        status: 'downloading',
+        phase: '下载图片',
+        total: plan.pages.length,
+        updatedAt: Date.now(),
       }
-
-      if (imageUrls.length === 0) {
-        throw new Error('没有解析到图片链接')
-      }
-
-      let currentTask = { ...task, name: title, status: 'downloading' as const, total: imageUrls.length, updatedAt: Date.now() }
       setTask(currentTask)
 
       const images: Array<{ name: string; type?: string; blob: Blob }> = []
       const imageRefs: Array<{ name: string; type?: string; uri: string }> = []
       let outputPath = downloadTargetService.getTargetLabel()
-      for (const [index, imageUrl] of imageUrls.entries()) {
+      for (const [index, page] of plan.pages.entries()) {
         const latest = loadTasks().find((item) => item.id === task.id)
         if (latest?.status === 'cancelled') {
           return
         }
 
         try {
-          const blob = await fetchBlob(imageUrl)
-          const name = imageNameFromUrl(imageUrl, index)
+          const blob = await fetchBlob(page)
+          const name = page.name
           if (downloadTargetService.isAvailable()) {
-            const writtenImage = await downloadTargetService.writeImage(title, name, blob.type, blob)
+            const writtenImage = await downloadTargetService.writeImage(plan.title, name, page.type || blob.type, blob)
             outputPath = writtenImage.folderUri || outputPath
             imageRefs.push({
               name: writtenImage.name || name,
-              type: writtenImage.type || blob.type,
+              type: writtenImage.type || page.type || blob.type,
               uri: writtenImage.uri,
             })
           } else {
             images.push({
               name,
-              type: blob.type,
+              type: page.type || blob.type,
               blob,
             })
           }
         } catch (error) {
-          console.warn(`跳过下载失败的图片: ${imageUrl}`, error)
+          console.warn(`跳过下载失败的图片: ${page.url}`, error)
         }
 
         currentTask = { ...currentTask, current: index + 1, outputPath, updatedAt: Date.now() }
@@ -308,11 +274,12 @@ export const downloadService = {
       }
 
       const manga = imageRefs.length > 0
-        ? await libraryService.importImageRefs(title, imageRefs, 'download')
-        : await libraryService.importImageBlobs(title, images, 'download')
+        ? await libraryService.importImageRefs(plan.title, imageRefs, 'download')
+        : await libraryService.importImageBlobs(plan.title, images, 'download')
       setTask({
         ...currentTask,
         status: 'completed',
+        phase: undefined,
         mangaId: manga.id,
         outputPath,
         current: imageRefs.length || images.length,
@@ -322,7 +289,7 @@ export const downloadService = {
       })
     } catch (error) {
       setTask({
-        ...task,
+        ...currentTask,
         status: 'failed',
         error: error instanceof Error ? error.message : '下载失败',
         completedAt: Date.now(),

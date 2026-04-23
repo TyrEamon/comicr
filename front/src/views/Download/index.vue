@@ -220,6 +220,9 @@ function formatTaskAddress(task: DownloadTask) {
   if (task.source === 'jm') {
     return `JM ${task.url.replace(/^jm:/i, '')}`
   }
+  if (task.source === 'telegraph') {
+    return `Telegraph ${task.url}`
+  }
   return task.url
 }
 
