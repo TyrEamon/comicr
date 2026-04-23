@@ -32,7 +32,12 @@ chaquopy {
     defaultConfig {
         version = "3.11"
         pip {
-            install "jmcomic==2.6.18"
+            install "commonX==0.6.40"
+            install "Pillow==10.4.0"
+            install "pycryptodome==3.20.0"
+            install "PyYAML==6.0.2"
+            install "requests==2.32.5"
+            install "--no-deps", "jmcomic==2.6.18"
         }
     }
 }
