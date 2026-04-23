@@ -1,4 +1,4 @@
-export type MangaSource = 'archive' | 'download' | 'cloud' | 'folder' | 'sample'
+export type MangaSource = 'archive' | 'download' | 'cloud' | 'folder' | 'epub' | 'sample'
 
 export interface MangaItem {
   id: string

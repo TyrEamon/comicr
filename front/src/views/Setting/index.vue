@@ -36,12 +36,12 @@
         </button>
         <button class="ghost-button import-button" type="button" :disabled="busy" @click="imageInput?.click()">
           <Images :size="18" />
-          图片
+          图片/文件
         </button>
       </div>
 
       <input ref="archiveInput" class="hidden-input" type="file" accept=".zip,.cbz,application/zip" multiple @change="handleArchiveImport" />
-      <input ref="imageInput" class="hidden-input" type="file" accept="image/*" multiple @change="handleImageFilesImport($event, '图片')" />
+      <input ref="imageInput" class="hidden-input" type="file" accept="image/*,.epub,application/epub+zip" multiple @change="handleImageFilesImport($event, '图片/文件')" />
 
       <div v-if="message" class="import-message">
         <span>{{ message }}</span>
@@ -264,6 +264,10 @@ function requestedTitle() {
   return importTitle.value.trim() || undefined
 }
 
+function isEpubImportFile(file: File) {
+  return file.name.toLowerCase().endsWith('.epub') || file.type === 'application/epub+zip'
+}
+
 function handleArchiveButton() {
   if (archiveService.isAvailable()) {
     void handleNativeArchiveImport()
@@ -358,14 +362,45 @@ async function handleImageFilesImport(event: Event, label: string) {
   const input = event.target as HTMLInputElement
   const files = Array.from(input.files ?? [])
   if (files.length === 0) return
+  const epubFiles = files.filter(isEpubImportFile)
+  const imageFiles = files.filter((file) => !isEpubImportFile(file))
 
   busy.value = true
   importedManga.value = null
   message.value = `正在导入${label}...`
   try {
-    const manga = await library.importImageFiles(files, requestedTitle())
-    importedManga.value = { id: manga.id, title: manga.title }
-    message.value = `已导入 ${manga.title}（${manga.imageCount} 页）`
+    if (epubFiles.length === 0 && imageFiles.length === 0) {
+      throw new Error('请选择图片或 EPUB 文件')
+    }
+
+    const manualTitle = requestedTitle()
+    const importGroups = epubFiles.length + (imageFiles.length > 0 ? 1 : 0)
+    let totalImages = 0
+    let count = 0
+    let lastManga: { id: string; title: string } | null = null
+
+    if (imageFiles.length > 0) {
+      message.value = '正在导入图片...'
+      const manga = await library.importImageFiles(imageFiles, importGroups === 1 ? manualTitle : undefined)
+      totalImages += manga.imageCount
+      count += 1
+      lastManga = { id: manga.id, title: manga.title }
+    }
+
+    for (const [index, file] of epubFiles.entries()) {
+      const title = importGroups === 1 ? manualTitle : undefined
+      message.value = `正在解析 EPUB ${index + 1}/${epubFiles.length}：${file.name}`
+      const manga = await library.importEpubFile(file, title, false)
+      totalImages += manga.imageCount
+      count += 1
+      lastManga = { id: manga.id, title: manga.title }
+    }
+
+    if (epubFiles.length > 0) await library.refresh()
+    importedManga.value = count === 1 ? lastManga : null
+    message.value = count === 1 && lastManga
+      ? `已导入 ${lastManga.title}（${totalImages} 页）`
+      : `已导入 ${count} 本，共 ${totalImages} 页`
     importTitle.value = ''
   } catch (error) {
     message.value = error instanceof Error ? error.message : `${label}导入失败`

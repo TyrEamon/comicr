@@ -55,6 +55,8 @@ const sourceLabel = computed(() => {
       return '下载'
     case 'folder':
       return '文件夹'
+    case 'epub':
+      return 'EPUB'
     case 'sample':
       return '示例'
     default:

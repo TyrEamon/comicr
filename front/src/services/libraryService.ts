@@ -48,6 +48,10 @@ function cleanArchiveTitle(name: string) {
   return name.replace(/\.(zip|cbz)$/i, '').trim() || '未命名漫画'
 }
 
+function cleanEpubTitle(name: string) {
+  return name.replace(/\.epub$/i, '').trim() || '未命名漫画'
+}
+
 function cleanManualTitle(title?: string) {
   return title?.trim() || ''
 }
@@ -58,6 +62,65 @@ function isImageFile(file: PickedImageFile) {
 
 function fileSortPath(file: PickedImageFile) {
   return file.webkitRelativePath || file.name
+}
+
+function normalizeZipPath(path: string) {
+  const parts: string[] = []
+  for (const part of path.replace(/\\/g, '/').split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') {
+      parts.pop()
+      continue
+    }
+    parts.push(part)
+  }
+  return parts.join('/')
+}
+
+function decodeHref(href: string) {
+  const cleanHref = href.split('#')[0].split('?')[0].trim().replace(/\\/g, '/')
+  try {
+    return decodeURI(cleanHref)
+  } catch {
+    return cleanHref
+  }
+}
+
+function zipDirName(path: string) {
+  const normalized = normalizeZipPath(path)
+  const index = normalized.lastIndexOf('/')
+  return index >= 0 ? normalized.slice(0, index) : ''
+}
+
+function joinZipPath(baseDir: string, href: string) {
+  const cleanHref = decodeHref(href)
+  if (!cleanHref) return ''
+  if (cleanHref.startsWith('/')) return normalizeZipPath(cleanHref.slice(1))
+  return normalizeZipPath(baseDir ? `${baseDir}/${cleanHref}` : cleanHref)
+}
+
+function xmlElements(parent: Document | Element, localName: string) {
+  return Array.from(parent.getElementsByTagNameNS('*', localName))
+}
+
+function parseXml(text: string, label: string) {
+  const doc = new DOMParser().parseFromString(text, 'application/xml')
+  if (doc.getElementsByTagName('parsererror').length > 0) {
+    throw new Error(`${label} 格式不正确`)
+  }
+  return doc
+}
+
+function firstSrcsetUrl(value: string | null) {
+  return value?.split(',')[0]?.trim().split(/\s+/)[0] || ''
+}
+
+function imageHrefFromElement(element: Element) {
+  return element.getAttribute('src')
+    || firstSrcsetUrl(element.getAttribute('srcset'))
+    || element.getAttribute('href')
+    || element.getAttribute('xlink:href')
+    || ''
 }
 
 function cleanFolderTitle(files: PickedImageFile[], title?: string) {
@@ -143,6 +206,107 @@ export const libraryService = {
       return this.importImageBlobs(cleanManualTitle(title) || cleanArchiveTitle(file.name), blobs, source)
     } catch (error) {
       throw normalizeArchiveError(error, '导入压缩包')
+    }
+  },
+
+  async importEpubFile(file: File, title?: string) {
+    try {
+      const zip = await JSZip.loadAsync(file)
+      const entries = Object.values(zip.files).filter((entry) => !entry.dir)
+      const entriesByPath = new Map(entries.map((entry) => [normalizeZipPath(entry.name), entry]))
+      const imageEntries = entries.filter((entry) => IMAGE_EXTENSIONS.has(extensionOf(entry.name)))
+      const imageEntriesByPath = new Map(imageEntries.map((entry) => [normalizeZipPath(entry.name), entry]))
+
+      if (imageEntries.length === 0) {
+        throw new Error('EPUB 里没有可导入的图片')
+      }
+
+      const orderedImagePaths: string[] = []
+      const seen = new Set<string>()
+      const addImagePath = (path: string) => {
+        const normalized = normalizeZipPath(path)
+        if (!normalized || seen.has(normalized) || !imageEntriesByPath.has(normalized)) return
+        seen.add(normalized)
+        orderedImagePaths.push(normalized)
+      }
+
+      const containerEntry = entriesByPath.get('META-INF/container.xml')
+      let opfPath = ''
+      if (containerEntry) {
+        const container = parseXml(await containerEntry.async('text'), 'EPUB 容器')
+        opfPath = xmlElements(container, 'rootfile')[0]?.getAttribute('full-path') || ''
+        opfPath = normalizeZipPath(opfPath)
+      }
+      if (!opfPath || !entriesByPath.has(opfPath)) {
+        opfPath = entries
+          .map((entry) => normalizeZipPath(entry.name))
+          .find((path) => extensionOf(path) === '.opf') || ''
+      }
+
+      let epubTitle = ''
+      if (opfPath) {
+        const opfEntry = entriesByPath.get(opfPath)
+        if (opfEntry) {
+          const opf = parseXml(await opfEntry.async('text'), 'EPUB 目录')
+          const opfDir = zipDirName(opfPath)
+          epubTitle = xmlElements(opf, 'title')[0]?.textContent?.trim() || ''
+
+          const manifest = new Map<string, { path: string; mediaType: string }>()
+          for (const item of xmlElements(opf, 'item')) {
+            const id = item.getAttribute('id')
+            const href = item.getAttribute('href')
+            if (!id || !href) continue
+            manifest.set(id, {
+              path: joinZipPath(opfDir, href),
+              mediaType: item.getAttribute('media-type') || '',
+            })
+          }
+
+          for (const itemref of xmlElements(opf, 'itemref')) {
+            const idref = itemref.getAttribute('idref')
+            const item = idref ? manifest.get(idref) : undefined
+            if (!item) continue
+
+            if (IMAGE_EXTENSIONS.has(extensionOf(item.path)) || item.mediaType.startsWith('image/')) {
+              addImagePath(item.path)
+              continue
+            }
+
+            const pageEntry = entriesByPath.get(item.path)
+            if (!pageEntry) continue
+
+            const html = new DOMParser().parseFromString(await pageEntry.async('text'), 'text/html')
+            const pageDir = zipDirName(item.path)
+            for (const imageNode of Array.from(html.querySelectorAll('img, image, source'))) {
+              const href = imageHrefFromElement(imageNode)
+              if (href) addImagePath(joinZipPath(pageDir, href))
+            }
+          }
+        }
+      }
+
+      if (orderedImagePaths.length === 0) {
+        orderedImagePaths.push(
+          ...imageEntries
+            .map((entry) => normalizeZipPath(entry.name))
+            .sort((left, right) => collator.compare(left, right)),
+        )
+      }
+
+      const images = await Promise.all(orderedImagePaths.map(async (path) => {
+        const entry = imageEntriesByPath.get(path)
+        if (!entry) throw new Error('EPUB 图片索引丢失')
+        return {
+          name: path.split('/').pop() || path,
+          type: mimeFromName(path),
+          blob: await entry.async('blob'),
+        }
+      }))
+
+      const mangaTitle = cleanManualTitle(title) || epubTitle || cleanEpubTitle(file.name)
+      return this.importImageBlobs(mangaTitle, images, 'epub')
+    } catch (error) {
+      throw normalizeArchiveError(error, '导入 EPUB')
     }
   },
 

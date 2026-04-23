@@ -150,6 +150,8 @@ const deleteDescription = computed(() => {
       return '只会删除书架索引、阅读进度和收藏状态，不会删除手机里的原压缩包。'
     case 'folder':
       return '只会删除书架索引、阅读进度和收藏状态，不会删除原文件夹里的图片。'
+    case 'epub':
+      return '只会删除书架索引、阅读进度和收藏状态，不会删除你导入前的 EPUB 文件。'
     case 'cloud':
       return '只会从当前云盘书架索引移除，不会删除 WebDAV 里的文件。刷新云盘列表后可能会重新出现。'
     default:
@@ -183,6 +185,8 @@ const sourceLabel = computed(() => {
       return '已下载'
     case 'archive':
       return '压缩包'
+    case 'epub':
+      return 'EPUB'
     case 'sample':
       return '示例'
     default:
