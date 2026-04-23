@@ -303,6 +303,9 @@ export const libraryService = {
       return URL.createObjectURL(blob)
     }
     if (cover.archiveUri && cover.archiveEntryName && archiveService.isAvailable()) {
+      const contentSrc = archiveService.entryContentSrc(cover.archiveUri, cover.archiveEntryName)
+      if (contentSrc) return contentSrc
+
       const blob = await archiveService.readEntry(cover.archiveUri, cover.archiveEntryName, cover.type)
       return URL.createObjectURL(blob)
     }
@@ -328,6 +331,9 @@ export const libraryService = {
   async loadImageAssetSrc(image: ImageAsset) {
     if (image.src) return image.src
     if (image.archiveUri && image.archiveEntryName) {
+      const contentSrc = archiveService.entryContentSrc(image.archiveUri, image.archiveEntryName)
+      if (contentSrc) return contentSrc
+
       const blob = await archiveService.readEntry(image.archiveUri, image.archiveEntryName, image.type)
       return URL.createObjectURL(blob)
     }
