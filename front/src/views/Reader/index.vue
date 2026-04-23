@@ -172,25 +172,17 @@
 
             <section class="reader-settings-section">
               <p class="drawer-section-label">阅读模式</p>
-              <button class="reader-mode-option" :class="{ active: readerMode === 'gallery' }" type="button" @click="setReaderMode('gallery')">
-                <strong>画廊</strong>
-                <span>左右滑动切换图片</span>
+              <button class="reader-mode-option" :class="{ active: readerMode === 'gallery' && galleryDirection === 'right-next' }" type="button" @click="setGalleryMode('right-next')">
+                <strong>画廊（从右到左）</strong>
+                <span>右侧下一张，左滑下一张</span>
+              </button>
+              <button class="reader-mode-option" :class="{ active: readerMode === 'gallery' && galleryDirection === 'left-next' }" type="button" @click="setGalleryMode('left-next')">
+                <strong>画廊（从左到右）</strong>
+                <span>左侧下一张，右滑下一张</span>
               </button>
               <button class="reader-mode-option" :class="{ active: readerMode === 'continuous' }" type="button" @click="setReaderMode('continuous')">
                 <strong>连续</strong>
                 <span>从上到下连续阅读</span>
-              </button>
-            </section>
-
-            <section v-if="readerMode === 'gallery'" class="reader-settings-section">
-              <p class="drawer-section-label">画廊翻页</p>
-              <button class="reader-mode-option" :class="{ active: galleryDirection === 'right-next' }" type="button" @click="setGalleryDirection('right-next')">
-                <strong>从右到左</strong>
-                <span>右侧点击下一张，左滑下一张</span>
-              </button>
-              <button class="reader-mode-option" :class="{ active: galleryDirection === 'left-next' }" type="button" @click="setGalleryDirection('left-next')">
-                <strong>从左到右</strong>
-                <span>左侧点击下一张，右滑下一张</span>
               </button>
             </section>
 
@@ -610,12 +602,6 @@ function handleGalleryTap(event: MouseEvent) {
   previousPage()
 }
 
-function setGalleryDirection(direction: ReaderGalleryDirection) {
-  galleryDirection.value = direction
-  controlsVisible.value = true
-  window.clearTimeout(hideTimer)
-}
-
 function shouldSwipeNext(deltaX: number) {
   const swipedLeft = deltaX < 0
   return galleryDirection.value === 'right-next' ? swipedLeft : !swipedLeft
@@ -645,6 +631,13 @@ function handleDoubleTap() {
 
 function setReaderMode(mode: ReaderMode) {
   readerMode.value = mode
+  controlsVisible.value = true
+  window.clearTimeout(hideTimer)
+}
+
+function setGalleryMode(direction: ReaderGalleryDirection) {
+  readerMode.value = 'gallery'
+  galleryDirection.value = direction
   controlsVisible.value = true
   window.clearTimeout(hideTimer)
 }
