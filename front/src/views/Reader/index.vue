@@ -182,6 +182,18 @@
               </button>
             </section>
 
+            <section v-if="readerMode === 'gallery'" class="reader-settings-section">
+              <p class="drawer-section-label">画廊翻页</p>
+              <button class="reader-mode-option" :class="{ active: galleryDirection === 'right-next' }" type="button" @click="setGalleryDirection('right-next')">
+                <strong>从右到左</strong>
+                <span>右侧点击下一张，左滑下一张</span>
+              </button>
+              <button class="reader-mode-option" :class="{ active: galleryDirection === 'left-next' }" type="button" @click="setGalleryDirection('left-next')">
+                <strong>从左到右</strong>
+                <span>左侧点击下一张，右滑下一张</span>
+              </button>
+            </section>
+
             <section class="reader-settings-section">
               <p class="drawer-section-label">页面适配</p>
               <div class="reader-settings-segment">
@@ -201,7 +213,7 @@ import { cloudService } from '@/services/cloudService'
 import { cloudDownloadService } from '@/services/cloudDownloadService'
 import { downloadService } from '@/services/downloadService'
 import { libraryService } from '@/services/libraryService'
-import { readerService, type ReaderFitMode, type ReaderMode } from '@/services/readerService'
+import { readerService, type ReaderFitMode, type ReaderGalleryDirection, type ReaderMode } from '@/services/readerService'
 import type { ImageAsset, MangaItem } from '@/services/types'
 import { ArrowLeft, Bookmark, Check, ChevronsLeft, ChevronsRight, Download as DownloadIcon, PanelTop, RefreshCw, Settings, Sun, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -228,6 +240,7 @@ const cloudDownloaded = ref(false)
 const cloudDownloadQueued = ref(false)
 const readerMode = ref<ReaderMode>(preferences.mode)
 const fitMode = ref<ReaderFitMode>(preferences.fitMode)
+const galleryDirection = ref<ReaderGalleryDirection>(preferences.galleryDirection)
 const continuousContainer = ref<HTMLElement | null>(null)
 const continuousFrames = ref<HTMLElement[]>([])
 const loadError = ref('')
@@ -336,6 +349,10 @@ watch(fitMode, async (mode) => {
   if (isContinuousMode.value) {
     await scrollToCurrentIndex('auto')
   }
+})
+
+watch(galleryDirection, (direction) => {
+  readerService.updatePreferences({ galleryDirection: direction })
 })
 
 function toggleControls(skipDoubleTap = false) {
@@ -580,14 +597,28 @@ function handleGalleryTap(event: MouseEvent) {
     return
   }
 
-  if (event.clientX < width * 0.24) {
-    previousPage()
+  const leftZone = event.clientX < width * 0.24
+  const rightZone = event.clientX > width * 0.76
+  if (!leftZone && !rightZone) return
+
+  const nextFromLeft = galleryDirection.value === 'left-next'
+  if ((leftZone && nextFromLeft) || (rightZone && !nextFromLeft)) {
+    nextPage()
     return
   }
 
-  if (event.clientX > width * 0.76) {
-    nextPage()
-  }
+  previousPage()
+}
+
+function setGalleryDirection(direction: ReaderGalleryDirection) {
+  galleryDirection.value = direction
+  controlsVisible.value = true
+  window.clearTimeout(hideTimer)
+}
+
+function shouldSwipeNext(deltaX: number) {
+  const swipedLeft = deltaX < 0
+  return galleryDirection.value === 'right-next' ? swipedLeft : !swipedLeft
 }
 
 function handleDoubleTap() {
@@ -641,7 +672,7 @@ function handleGalleryTouchEnd(event: TouchEvent) {
   if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY)) return
 
   ignoreNextTap.value = true
-  if (deltaX < 0) {
+  if (shouldSwipeNext(deltaX)) {
     nextPage()
   } else {
     previousPage()
