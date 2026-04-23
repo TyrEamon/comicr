@@ -40,7 +40,7 @@ interface NativeJmComicPlugin {
 }
 
 const jmComicPlugin = registerPlugin<NativeJmComicPlugin>('JmComic')
-const JM_TARGET_RE = /(^\d{3,}$)|(^p\d{3,}$)|(^jm:)|18comic\.(vip|org)|jmcomic/i
+const JM_TARGET_RE = /(^\d{3,}$)|(^p\d{3,}$)|(^jm:?\d{3,}$)|18comic\.(vip|org)|jmcomic/i
 
 export const jmComicService = {
   isAvailable() {
@@ -76,5 +76,5 @@ export const jmComicService = {
 
 function normalizeTarget(value: string) {
   const target = value.trim()
-  return target.toLowerCase().startsWith('jm:') ? target.slice(3).trim() : target
+  return target.replace(/^jm:?/i, '').trim()
 }

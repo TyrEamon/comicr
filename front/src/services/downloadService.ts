@@ -96,13 +96,16 @@ export const downloadService = {
   retryTask(taskIdValue: string) {
     const task = loadTasks().find((item) => item.id === taskIdValue)
     if (!task || isActiveTask(task)) return null
-    if (task.source === 'jm' && !jmComicService.isAvailable()) {
+    const isJm = jmComicService.isJmTarget(task.url)
+    if (isJm && !jmComicService.isAvailable()) {
       throw new Error('JM 下载需要 Android APK 环境')
     }
 
     const now = Date.now()
     const retryTask: DownloadTask = {
       ...task,
+      source: isJm ? 'jm' : task.source,
+      name: isJm ? '准备下载 JM 漫画' : task.name,
       status: 'pending',
       error: undefined,
       phase: undefined,

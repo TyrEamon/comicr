@@ -218,7 +218,7 @@ function formatTaskAddress(task: DownloadTask) {
     return `WebDAV ${task.remotePath || task.url.replace(/^webdav:/, '')}`
   }
   if (task.source === 'jm') {
-    return `JM ${task.url.replace(/^jm:/i, '')}`
+    return `JM ${task.url.replace(/^jm:?/i, '')}`
   }
   if (task.source === 'telegraph') {
     return `Telegraph ${task.url}`
