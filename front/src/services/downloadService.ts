@@ -120,6 +120,41 @@ export const downloadService = {
     return tasks.length - nextTasks.length
   },
 
+  removeRecord(taskIdValue: string) {
+    const tasks = loadTasks()
+    const task = tasks.find((item) => item.id === taskIdValue)
+    if (!task || isActiveTask(task)) return false
+
+    saveTasks(tasks.filter((item) => item.id !== taskIdValue))
+    return true
+  },
+
+  retryTask(taskIdValue: string) {
+    const task = loadTasks().find((item) => item.id === taskIdValue)
+    if (!task || isActiveTask(task)) return null
+    if (task.source === 'jm' && !jmComicService.isAvailable()) {
+      throw new Error('JM 下载需要 Android APK 环境')
+    }
+
+    const now = Date.now()
+    const retryTask: DownloadTask = {
+      ...task,
+      status: 'pending',
+      error: undefined,
+      phase: undefined,
+      outputPath: undefined,
+      mangaId: undefined,
+      current: 0,
+      total: 0,
+      createdAt: now,
+      completedAt: undefined,
+      updatedAt: now,
+    }
+    setTask(retryTask)
+    this.processQueue()
+    return retryTask
+  },
+
   async start(url: string) {
     const trimmed = url.trim()
     if (!trimmed) {

@@ -17,8 +17,8 @@
 
     <div class="tabs-row">
       <div class="tabs">
-        <button class="tab-button" :class="{ active: activeTab === 'active' }" type="button" @click="activeTab = 'active'">进行中</button>
-        <button class="tab-button" :class="{ active: activeTab === 'completed' }" type="button" @click="activeTab = 'completed'">已完成</button>
+        <button class="tab-button" :class="{ active: activeTab === 'active' }" type="button" @click="activeTab = 'active'">进行中 {{ activeTaskCount }}</button>
+        <button class="tab-button" :class="{ active: activeTab === 'completed' }" type="button" @click="activeTab = 'completed'">已完成 {{ completedTaskCount }}</button>
       </div>
       <button
         v-if="activeTab === 'completed' && visibleTasks.length > 0"
@@ -61,6 +61,20 @@
           <div :style="{ width: `${progressPercent(task)}%` }" />
         </div>
         <p v-if="task.error" class="task-error">{{ task.error }}</p>
+        <div v-if="!canCancel(task.status)" class="task-actions">
+          <button v-if="task.status === 'completed' && task.mangaId" class="task-action-button primary" type="button" @click="openTaskManga(task)">
+            <BookOpen :size="15" />
+            详情
+          </button>
+          <button v-if="canRetry(task.status)" class="task-action-button" type="button" @click="retryTask(task.id)">
+            <RotateCcw :size="15" />
+            重试
+          </button>
+          <button class="task-action-button danger" type="button" @click="removeTaskRecord(task.id)">
+            <Trash2 :size="15" />
+            删除记录
+          </button>
+        </div>
       </article>
     </section>
 
@@ -75,8 +89,9 @@
 <script setup lang="ts">
 import { downloadService } from '@/services/downloadService'
 import type { DownloadStatus, DownloadTask } from '@/services/types'
-import { Download as DownloadIcon, Trash2, X } from 'lucide-vue-next'
+import { BookOpen, Download as DownloadIcon, RotateCcw, Trash2, X } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 type Tab = 'active' | 'completed'
 
@@ -85,8 +100,11 @@ const activeTab = ref<Tab>('active')
 const tasks = ref<DownloadTask[]>([])
 const message = ref('')
 const submitting = ref(false)
+const router = useRouter()
 let pollTimer: number | undefined
 
+const activeTaskCount = computed(() => tasks.value.filter((task) => !['completed', 'failed', 'cancelled'].includes(task.status)).length)
+const completedTaskCount = computed(() => tasks.value.filter((task) => ['completed', 'failed', 'cancelled'].includes(task.status)).length)
 const visibleTasks = computed(() => {
   if (activeTab.value === 'active') {
     return tasks.value.filter((task) => !['completed', 'failed', 'cancelled'].includes(task.status))
@@ -133,6 +151,35 @@ function cancelTask(taskId: string) {
   refresh()
 }
 
+function removeTaskRecord(taskId: string) {
+  const confirmed = window.confirm('只删除这条下载记录，不会删除已保存的文件或书架漫画。确定删除吗？')
+  if (!confirmed) return
+
+  const removed = downloadService.removeRecord(taskId)
+  refresh()
+  message.value = removed ? '已删除下载记录。' : '这条任务还在进行中，不能删除记录。'
+}
+
+function retryTask(taskId: string) {
+  try {
+    const task = downloadService.retryTask(taskId)
+    refresh()
+    if (!task) {
+      message.value = '这条任务不能重试。'
+      return
+    }
+    activeTab.value = 'active'
+    message.value = '已重新加入下载队列。'
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '重试失败。'
+  }
+}
+
+function openTaskManga(task: DownloadTask) {
+  if (!task.mangaId) return
+  router.push({ name: 'manga-detail', params: { id: task.mangaId } })
+}
+
 function clearCompletedRecords() {
   const confirmed = window.confirm('只清除下载记录，不会删除已保存的文件或书架漫画。确定清空吗？')
   if (!confirmed) return
@@ -144,6 +191,10 @@ function clearCompletedRecords() {
 
 function canCancel(status: DownloadStatus) {
   return status === 'pending' || status === 'parsing' || status === 'downloading'
+}
+
+function canRetry(status: DownloadStatus) {
+  return status === 'failed' || status === 'cancelled'
 }
 
 function formatStatus(status: DownloadStatus) {
@@ -334,6 +385,36 @@ function progressPercent(task: DownloadTask) {
   margin: 12px 0 0 78px;
   color: #ffb4ab;
   font-size: 12px;
+}
+
+.task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 0 78px;
+}
+
+.task-action-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(153, 143, 131, 0.16);
+  border-radius: 12px;
+  padding: 0 10px;
+  color: rgba(209, 197, 183, 0.72);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 12px;
+}
+
+.task-action-button.primary {
+  color: #21180f;
+  border-color: transparent;
+  background: var(--color-accent);
+}
+
+.task-action-button.danger {
+  color: #fca5a5;
 }
 
 .empty-state {
