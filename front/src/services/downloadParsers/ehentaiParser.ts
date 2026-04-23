@@ -5,10 +5,10 @@ import {
   type DownloadPlan,
   type DownloadPlanPage,
 } from '../downloadPlan'
+import { downloadSiteSettings } from '../downloadSiteSettings'
 import { nativeHttpService } from '../nativeHttpService'
 
 const EHENTAI_HOSTS = new Set(['e-hentai.org', 'exhentai.org'])
-const EHENTAI_HEADERS = { Cookie: 'nw=1' }
 
 export function isEhentaiUrl(value: string) {
   try {
@@ -20,12 +20,13 @@ export function isEhentaiUrl(value: string) {
 }
 
 export async function resolveEhentaiDownloadPlan(pageUrl: string): Promise<DownloadPlan> {
-  const firstHtml = await nativeHttpService.getText(pageUrl, EHENTAI_HEADERS)
+  const headers = headersForGallery(pageUrl)
+  const firstHtml = await nativeHttpService.getText(pageUrl, headers)
   const firstDocument = parseHtml(firstHtml)
   const title = cleanTitle(firstDocument.querySelector('#gn')?.textContent || '', 'EHentai')
   const galleryPageUrls = collectGalleryPageUrls(firstDocument, pageUrl)
   const pageHtmls = await mapLimit(galleryPageUrls, 5, async (url, index) => (
-    index === 0 ? firstHtml : nativeHttpService.getText(url, EHENTAI_HEADERS)
+    index === 0 ? firstHtml : nativeHttpService.getText(url, headers)
   ))
 
   const imagePageLinks = pageHtmls.flatMap((html, pageIndex) => (
@@ -41,13 +42,13 @@ export async function resolveEhentaiDownloadPlan(pageUrl: string): Promise<Downl
   }
 
   const pages = await mapLimit(imagePageLinks, 5, async (link) => {
-    const realPageUrl = await resolveRealPageUrl(link.url)
-    const imageUrl = await resolveFinalImageUrl(realPageUrl)
+    const realPageUrl = await resolveRealPageUrl(link.url, headers)
+    const imageUrl = await resolveFinalImageUrl(realPageUrl, headers)
     return {
       url: imageUrl,
       name: `${link.pageIndex}_${link.linkIndex}.jpg`,
       referer: realPageUrl,
-      headers: EHENTAI_HEADERS,
+      headers,
     }
   })
 
@@ -84,8 +85,8 @@ function collectImagePageLinks(document: Document, pageUrl: string) {
     .filter(Boolean)
 }
 
-async function resolveRealPageUrl(link: string) {
-  const html = await nativeHttpService.getText(link, EHENTAI_HEADERS)
+async function resolveRealPageUrl(link: string, headers: Record<string, string>) {
+  const html = await nativeHttpService.getText(link, headers)
   const image = parseHtml(html).querySelector('#img')
   const onError = image?.getAttribute('onerror') || ''
   const nl = onError.match(/nl\('(.+)'\)/)?.[1]
@@ -95,11 +96,21 @@ async function resolveRealPageUrl(link: string) {
   return `${link}?nl=${encodeURIComponent(nl)}`
 }
 
-async function resolveFinalImageUrl(realPageUrl: string) {
-  const html = await nativeHttpService.getText(realPageUrl, EHENTAI_HEADERS)
+async function resolveFinalImageUrl(realPageUrl: string, headers: Record<string, string>) {
+  const html = await nativeHttpService.getText(realPageUrl, headers)
   const imageUrl = parseHtml(html).querySelector('#img')?.getAttribute('src') || ''
   if (!imageUrl) {
     throw new Error('无法解析 EHentai 图片地址')
   }
   return imageUrl
+}
+
+function headersForGallery(pageUrl: string) {
+  const url = new URL(pageUrl)
+  const cookieParts = ['nw=1']
+  if (url.hostname.toLowerCase() === 'exhentai.org') {
+    const cookie = downloadSiteSettings.getSettings().exhentaiCookie
+    if (cookie) cookieParts.push(cookie)
+  }
+  return { Cookie: cookieParts.join('; ') }
 }

@@ -58,6 +58,38 @@
     <section class="surface-card setting-card storage-card">
       <div class="setting-card-header">
         <div>
+          <h2>站点凭据</h2>
+          <p>ExHentai 访问 Cookie</p>
+        </div>
+        <span class="status-pill">{{ exhentaiCookie.trim() ? '已设置' : '可选' }}</span>
+      </div>
+
+      <label class="input-label" for="exhentai-cookie">ExHentai Cookie</label>
+      <textarea
+        id="exhentai-cookie"
+        v-model="exhentaiCookie"
+        class="text-input credential-input"
+        rows="3"
+        spellcheck="false"
+        autocomplete="off"
+        placeholder="ipb_member_id=...; ipb_pass_hash=...; igneous=..."
+      />
+
+      <div class="cache-actions">
+        <button class="ghost-button import-button" type="button" @click="saveExhentaiCookie">
+          <HardDrive :size="18" />
+          保存 Cookie
+        </button>
+        <button class="ghost-button import-button danger-action" type="button" :disabled="!exhentaiCookie.trim()" @click="clearExhentaiCookie">
+          <Trash2 :size="18" />
+          清除 Cookie
+        </button>
+      </div>
+    </section>
+
+    <section class="surface-card setting-card storage-card">
+      <div class="setting-card-header">
+        <div>
           <h2>下载位置</h2>
           <p>{{ downloadTargetLabel }}</p>
         </div>
@@ -181,6 +213,7 @@
 import { archiveService } from '@/services/archiveService'
 import { cloudService } from '@/services/cloudService'
 import { cloudThreadSettings } from '@/services/cloudThreadSettings'
+import { downloadSiteSettings } from '@/services/downloadSiteSettings'
 import { downloadTargetService } from '@/services/downloadTargetService'
 import { jmThreadSettings } from '@/services/jmThreadSettings'
 import { localFolderService } from '@/services/localFolderService'
@@ -200,6 +233,7 @@ const cacheLimitMb = ref(Math.round(cloudService.getCloudCacheSettings().maxByte
 const clearCoverCache = ref(false)
 const cloudThreadCount = ref(cloudThreadSettings.getSettings().threadCount)
 const jmThreadCount = ref(jmThreadSettings.getSettings().threadCount)
+const exhentaiCookie = ref(downloadSiteSettings.getSettings().exhentaiCookie)
 const MIN_THREAD_COUNT = 1
 const MAX_CLOUD_THREAD_COUNT = 4
 const MAX_JM_THREAD_COUNT = 8
@@ -411,6 +445,18 @@ function setJmThreadCountFromInput(event: Event) {
   input.value = String(jmThreadCount.value)
 }
 
+function saveExhentaiCookie() {
+  const settings = downloadSiteSettings.updateSettings({ exhentaiCookie: exhentaiCookie.value })
+  exhentaiCookie.value = settings.exhentaiCookie
+  message.value = settings.exhentaiCookie ? 'ExHentai Cookie 已保存' : 'ExHentai Cookie 已清空'
+}
+
+function clearExhentaiCookie() {
+  const settings = downloadSiteSettings.clearExhentaiCookie()
+  exhentaiCookie.value = settings.exhentaiCookie
+  message.value = 'ExHentai Cookie 已清空'
+}
+
 async function saveCacheLimit() {
   busy.value = true
   try {
@@ -596,6 +642,11 @@ function formatBytes(value: number) {
 
 .stepper-value[type='number'] {
   appearance: textfield;
+}
+
+.credential-input {
+  min-height: 86px;
+  resize: vertical;
 }
 
 .cover-cache-toggle {
