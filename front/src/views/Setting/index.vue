@@ -82,7 +82,17 @@
         </div>
         <div class="stepper-control" role="group" aria-label="云盘线程数">
           <button class="stepper-button" type="button" :disabled="cloudThreadCount <= MIN_THREAD_COUNT" aria-label="减少云盘线程数" @click="setCloudThreadCount(cloudThreadCount - 1)">-</button>
-          <span class="stepper-value">{{ cloudThreadCount }}</span>
+          <input
+            class="stepper-value"
+            type="number"
+            inputmode="numeric"
+            :min="MIN_THREAD_COUNT"
+            :max="MAX_CLOUD_THREAD_COUNT"
+            :value="cloudThreadCount"
+            aria-label="云盘线程数"
+            @change="setCloudThreadCountFromInput"
+            @blur="setCloudThreadCountFromInput"
+          />
           <button class="stepper-button" type="button" :disabled="cloudThreadCount >= MAX_CLOUD_THREAD_COUNT" aria-label="增加云盘线程数" @click="setCloudThreadCount(cloudThreadCount + 1)">+</button>
         </div>
       </div>
@@ -94,7 +104,17 @@
         </div>
         <div class="stepper-control" role="group" aria-label="JM 线程数">
           <button class="stepper-button" type="button" :disabled="jmThreadCount <= MIN_THREAD_COUNT" aria-label="减少 JM 线程数" @click="setJmThreadCount(jmThreadCount - 1)">-</button>
-          <span class="stepper-value">{{ jmThreadCount }}</span>
+          <input
+            class="stepper-value"
+            type="number"
+            inputmode="numeric"
+            :min="MIN_THREAD_COUNT"
+            :max="MAX_JM_THREAD_COUNT"
+            :value="jmThreadCount"
+            aria-label="JM 线程数"
+            @change="setJmThreadCountFromInput"
+            @blur="setJmThreadCountFromInput"
+          />
           <button class="stepper-button" type="button" :disabled="jmThreadCount >= MAX_JM_THREAD_COUNT" aria-label="增加 JM 线程数" @click="setJmThreadCount(jmThreadCount + 1)">+</button>
         </div>
       </div>
@@ -373,10 +393,22 @@ function setCloudThreadCount(value: number) {
   message.value = `云盘线程数已设置为 ${settings.threadCount}`
 }
 
+function setCloudThreadCountFromInput(event: Event) {
+  const input = event.target as HTMLInputElement
+  setCloudThreadCount(Number(input.value))
+  input.value = String(cloudThreadCount.value)
+}
+
 function setJmThreadCount(value: number) {
   const settings = jmThreadSettings.updateSettings({ threadCount: value })
   jmThreadCount.value = settings.threadCount
   message.value = `JM 线程数已设置为 ${settings.threadCount}`
+}
+
+function setJmThreadCountFromInput(event: Event) {
+  const input = event.target as HTMLInputElement
+  setJmThreadCount(Number(input.value))
+  input.value = String(jmThreadCount.value)
 }
 
 async function saveCacheLimit() {
@@ -538,14 +570,32 @@ function formatBytes(value: number) {
 }
 
 .stepper-value {
-  display: grid;
-  min-width: 48px;
+  width: 48px;
   height: 38px;
-  place-items: center;
+  padding: 0;
   border-inline: 1px solid rgba(153, 143, 131, 0.14);
+  border-block: 0;
+  background: transparent;
   color: var(--color-accent);
   font-size: 14px;
   font-weight: 700;
+  line-height: 38px;
+  text-align: center;
+}
+
+.stepper-value:focus {
+  outline: 1px solid rgba(225, 194, 150, 0.5);
+  outline-offset: -1px;
+}
+
+.stepper-value::-webkit-outer-spin-button,
+.stepper-value::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.stepper-value[type='number'] {
+  appearance: textfield;
 }
 
 .cover-cache-toggle {

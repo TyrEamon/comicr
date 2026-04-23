@@ -1,6 +1,7 @@
 <template>
   <div class="app-shell" :class="{ fullscreen }">
     <MobileTopBar v-if="!fullscreen" :title="title" @menu="openMenu" @search="handleSearch" />
+    <div v-if="searchOpen" class="search-dismiss-layer" @click="closeSearch" />
     <Transition name="search-pop">
       <div v-if="searchOpen" class="floating-search" @click.stop>
         <input
@@ -71,16 +72,12 @@ const menuItems = [
 
 watch(() => route.fullPath, () => {
   menuOpen.value = false
-  searchOpen.value = false
-  searchQuery.value = ''
-  emitSearch()
+  closeSearch()
 })
 
 async function handleSearch() {
   if (searchOpen.value) {
-    searchOpen.value = false
-    searchQuery.value = ''
-    emitSearch()
+    closeSearch()
     return
   }
 
@@ -91,8 +88,14 @@ async function handleSearch() {
 }
 
 function openMenu() {
-  searchOpen.value = false
+  closeSearch()
   menuOpen.value = true
+}
+
+function closeSearch() {
+  searchOpen.value = false
+  searchQuery.value = ''
+  emitSearch()
 }
 
 function emitSearch() {
@@ -113,6 +116,13 @@ function emitSearch() {
   background: rgba(28, 27, 27, 0.96);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
   backdrop-filter: blur(18px);
+}
+
+.search-dismiss-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: transparent;
 }
 
 .menu-backdrop {
