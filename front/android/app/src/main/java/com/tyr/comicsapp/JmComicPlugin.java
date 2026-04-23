@@ -2,6 +2,9 @@ package com.tyr.comicsapp;
 
 import android.content.ContentResolver;
 import android.content.ContentValues;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -24,6 +27,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -89,9 +93,9 @@ public class JmComicPlugin extends Plugin {
                 }
 
                 String title = stringFromResult(result, "title", "JM 下载");
-                List<File> files = filesFromResult(result);
+                List<DownloadedSource> files = filesFromResult(result);
                 if (files.isEmpty()) {
-                    files = collectImageFiles(tempDir);
+                    files = sourcesFromFiles(collectImageFiles(tempDir));
                 }
                 if (files.isEmpty()) {
                     throw new Exception("JM 下载完成但没有找到图片");
@@ -106,8 +110,10 @@ public class JmComicPlugin extends Plugin {
                         return;
                     }
 
-                    File file = files.get(index);
-                    String name = String.format(Locale.US, "%05d%s", index + 1, extensionOf(file.getName()));
+                    DownloadedSource source = files.get(index);
+                    File file = source.segments > 0 ? decodeJmImage(source, tempDir, index) : source.file;
+                    String outputExtension = source.segments > 0 ? ".jpg" : extensionOf(source.name);
+                    String name = String.format(Locale.US, "%05d%s", index + 1, outputExtension);
                     WrittenImage written = targetUri == null || targetUri.isEmpty()
                         ? copyToDefaultFolder(title, name, mimeType(name), file)
                         : copyToTreeFolder(Uri.parse(targetUri), title, name, mimeType(name), file);
@@ -167,18 +173,34 @@ public class JmComicPlugin extends Plugin {
         }
     }
 
-    private List<File> filesFromResult(PyObject result) {
-        List<File> files = new ArrayList<>();
+    private List<DownloadedSource> filesFromResult(PyObject result) {
+        List<DownloadedSource> files = new ArrayList<>();
         try {
             PyObject imageList = result.callAttr("get", "images", new ArrayList<>());
             for (PyObject item : imageList.asList()) {
-                File file = new File(item.toString());
-                if (file.isFile()) files.add(file);
+                try {
+                    String path = String.valueOf(item.callAttr("get", "path", ""));
+                    String name = String.valueOf(item.callAttr("get", "name", new File(path).getName()));
+                    int segments = Integer.parseInt(String.valueOf(item.callAttr("get", "segments", 0)));
+                    File file = new File(path);
+                    if (file.isFile()) files.add(new DownloadedSource(file, name, Math.max(0, segments)));
+                } catch (Exception ignored) {
+                    File file = new File(item.toString());
+                    if (file.isFile()) files.add(new DownloadedSource(file, file.getName(), 0));
+                }
             }
         } catch (Exception ignored) {
             // Fall back to scanning the temporary directory.
         }
         return files;
+    }
+
+    private List<DownloadedSource> sourcesFromFiles(List<File> files) {
+        List<DownloadedSource> sources = new ArrayList<>();
+        for (File file : files) {
+            sources.add(new DownloadedSource(file, file.getName(), 0));
+        }
+        return sources;
     }
 
     private List<File> collectImageFiles(File root) {
@@ -285,6 +307,70 @@ public class JmComicPlugin extends Plugin {
         try (FileInputStream input = new FileInputStream(source);
              FileOutputStream output = new FileOutputStream(target, false)) {
             copyStream(input, output);
+        }
+    }
+
+    private File decodeJmImage(DownloadedSource source, File tempDir, int index) throws Exception {
+        Bitmap original = BitmapFactory.decodeFile(source.file.getAbsolutePath());
+        if (original == null) {
+            throw new Exception("JM 图片解码失败：" + source.name + "，" + describeFileHeader(source.file));
+        }
+
+        int segments = Math.max(0, source.segments);
+        if (segments <= 0) {
+            return source.file;
+        }
+
+        int width = original.getWidth();
+        int height = original.getHeight();
+        int over = height % segments;
+        int baseHeight = height / segments;
+        Bitmap decoded = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(decoded);
+
+        for (int segment = 0; segment < segments; segment++) {
+            int move = baseHeight;
+            int sourceY = height - (baseHeight * (segment + 1)) - over;
+            int targetY = baseHeight * segment;
+
+            if (segment == 0) {
+                move += over;
+            } else {
+                targetY += over;
+            }
+
+            Bitmap piece = Bitmap.createBitmap(original, 0, sourceY, width, move);
+            canvas.drawBitmap(piece, 0, targetY, null);
+            piece.recycle();
+        }
+
+        File decodedDir = new File(tempDir, "decoded");
+        if (!decodedDir.exists() && !decodedDir.mkdirs()) {
+            throw new Exception("无法创建 JM 解码目录");
+        }
+        File output = new File(decodedDir, String.format(Locale.US, "%05d.jpg", index + 1));
+        try (FileOutputStream stream = new FileOutputStream(output, false)) {
+            if (!decoded.compress(Bitmap.CompressFormat.JPEG, 95, stream)) {
+                throw new Exception("无法保存 JM 解码图片");
+            }
+        } finally {
+            decoded.recycle();
+            original.recycle();
+        }
+        return output;
+    }
+
+    private String describeFileHeader(File file) {
+        try (FileInputStream input = new FileInputStream(file)) {
+            byte[] data = new byte[(int) Math.min(96, file.length())];
+            int read = input.read(data);
+            if (read <= 0) return "文件为空";
+            String text = new String(data, 0, read, StandardCharsets.UTF_8)
+                .replaceAll("\\s+", " ")
+                .trim();
+            return "大小 " + file.length() + " 字节，开头：" + text;
+        } catch (Exception error) {
+            return "无法读取文件头";
         }
     }
 
@@ -413,6 +499,18 @@ public class JmComicPlugin extends Plugin {
             this.name = name;
             this.type = type;
             this.folder = folder;
+        }
+    }
+
+    private static class DownloadedSource {
+        final File file;
+        final String name;
+        final int segments;
+
+        DownloadedSource(File file, String name, int segments) {
+            this.file = file;
+            this.name = name;
+            this.segments = segments;
         }
     }
 }

@@ -45,7 +45,7 @@ def create_option(base_dir, image_threads):
         download={
             "cache": True,
             "image": {
-                "decode": True,
+                "decode": False,
                 "suffix": None,
             },
             "threading": {
@@ -93,6 +93,7 @@ def make_downloader(progress):
             super().__init__(option)
             self.current = 0
             self.total = 0
+            self.image_records = []
 
         def before_album(self, album):
             super().before_album(album)
@@ -113,6 +114,11 @@ def make_downloader(progress):
         def after_image(self, image, img_save_path):
             super().after_image(image, img_save_path)
             self.current += 1
+            self.image_records.append({
+                "path": img_save_path,
+                "name": getattr(image, "filename", "") or Path(img_save_path).name,
+                "segments": image_segments(image),
+            })
             emit_progress(progress, self.current, self.total, getattr(image, "tag", ""))
 
     return AndroidProgressDownloader
@@ -158,11 +164,14 @@ def download(target, output_dir, image_threads=4, progress=None):
 
     downloader = make_downloader(progress)
     if target_type == "photo":
-        jmcomic.download_photo(target_id, option, downloader=downloader)
+        _, dler = jmcomic.download_photo(target_id, option, downloader=downloader)
     else:
-        jmcomic.download_album(target_id, option, downloader=downloader)
+        _, dler = jmcomic.download_album(target_id, option, downloader=downloader)
 
-    images = collect_images(output_dir)
+    images = getattr(dler, "image_records", None) or [
+        {"path": path, "name": Path(path).name, "segments": 0}
+        for path in collect_images(output_dir)
+    ]
     if not images:
         raise RuntimeError("JM 下载完成但没有找到图片")
 
@@ -171,3 +180,11 @@ def download(target, output_dir, image_threads=4, progress=None):
         "images": images,
         "count": len(images),
     }
+
+
+def image_segments(image):
+    try:
+        from jmcomic import JmImageTool
+        return int(JmImageTool.get_num_by_detail(image) or 0)
+    except Exception:
+        return 0
