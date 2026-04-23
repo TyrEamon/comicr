@@ -65,18 +65,47 @@ function parseHtml(html: string) {
 }
 
 function collectGalleryPageUrls(document: Document, pageUrl: string) {
-  const urls = [pageUrl]
-  const cells = Array.from(document.querySelectorAll('body > .gtb:first-of-type td'))
-  const lastIndex = cells.length - 1
+  const urls = new Set([pageUrl])
+  const pageLinks = Array.from(document.querySelectorAll('.ptt a, table.ptt a, .gtb a'))
 
-  for (const [index, cell] of cells.entries()) {
-    if (index === 0 || index === 1 || index === lastIndex) continue
-    const href = cell.querySelector('a')?.getAttribute('href')
+  for (const link of pageLinks) {
+    const href = link.getAttribute('href')
     const url = href ? resolveUrl(href, pageUrl) : ''
-    if (url && !urls.includes(url)) urls.push(url)
+    if (url) urls.add(url)
   }
 
-  return urls
+  const pageCount = galleryPageCount(document)
+  if (pageCount > 1) {
+    for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+      urls.add(galleryPageUrl(pageUrl, pageIndex))
+    }
+  }
+
+  return Array.from(urls)
+}
+
+function galleryPageUrl(pageUrl: string, pageIndex: number) {
+  const url = new URL(pageUrl)
+  if (pageIndex <= 0) {
+    url.searchParams.delete('p')
+  } else {
+    url.searchParams.set('p', String(pageIndex))
+  }
+  return url.toString()
+}
+
+function galleryPageCount(document: Document) {
+  const text = document.body.textContent || ''
+  const total = text.match(/Showing\s+\d+\s*-\s*\d+\s+of\s+(\d+)\s+images/i)?.[1]
+  if (total) {
+    return Math.ceil(Number(total) / 20)
+  }
+
+  const pageNumbers = Array.from(document.querySelectorAll('.ptt td, table.ptt td, .gtb td'))
+    .map((node) => Number(node.textContent?.trim()))
+    .filter((value) => Number.isFinite(value) && value > 0)
+
+  return pageNumbers.length > 0 ? Math.max(...pageNumbers) : 1
 }
 
 function collectImagePageLinks(document: Document, pageUrl: string) {
