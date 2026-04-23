@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.ParcelFileDescriptor;
 import android.provider.OpenableColumns;
 import android.util.Base64;
 
@@ -26,6 +27,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 
 @CapacitorPlugin(name = "Archive")
@@ -268,6 +270,31 @@ public class ArchivePlugin extends Plugin {
     }
 
     private JSObject readEntryPayload(Uri archiveUri, String expectedEntryName) throws Exception {
+        try {
+            return readEntryPayloadRandomAccess(archiveUri, expectedEntryName);
+        } catch (Exception ignored) {
+            return readEntryPayloadSequential(archiveUri, expectedEntryName);
+        }
+    }
+
+    private JSObject readEntryPayloadRandomAccess(Uri archiveUri, String expectedEntryName) throws Exception {
+        ParcelFileDescriptor descriptor = getContext().getContentResolver().openFileDescriptor(archiveUri, "r");
+        if (descriptor == null) throw new Exception("无法随机读取压缩包");
+
+        try (ParcelFileDescriptor closeableDescriptor = descriptor;
+             ZipFile zipFile = new ZipFile("/proc/self/fd/" + closeableDescriptor.getFd())) {
+            ZipEntry entry = zipFile.getEntry(expectedEntryName);
+            if (entry == null || entry.isDirectory()) {
+                throw new Exception("压缩包里找不到该页面");
+            }
+
+            try (InputStream input = zipFile.getInputStream(entry)) {
+                return buildEntryResponse(entry.getName(), input);
+            }
+        }
+    }
+
+    private JSObject readEntryPayloadSequential(Uri archiveUri, String expectedEntryName) throws Exception {
         InputStream input = getContext().getContentResolver().openInputStream(archiveUri);
         if (input == null) throw new Exception("无法读取压缩包");
 
@@ -276,23 +303,27 @@ public class ArchivePlugin extends Plugin {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
                 if (!entry.isDirectory() && expectedEntryName.equals(entry.getName())) {
-                    ByteArrayOutputStream output = new ByteArrayOutputStream();
-                    byte[] buffer = new byte[32 * 1024];
-                    int read;
-                    while ((read = zip.read(buffer)) != -1) {
-                        output.write(buffer, 0, read);
-                    }
-
-                    JSObject response = new JSObject();
-                    response.put("type", mimeType(entry.getName()));
-                    response.put("base64", Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP));
-                    return response;
+                    return buildEntryResponse(entry.getName(), zip);
                 }
                 zip.closeEntry();
             }
         }
 
         throw new Exception("压缩包里找不到该页面");
+    }
+
+    private JSObject buildEntryResponse(String entryName, InputStream input) throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[32 * 1024];
+        int read;
+        while ((read = input.read(buffer)) != -1) {
+            output.write(buffer, 0, read);
+        }
+
+        JSObject response = new JSObject();
+        response.put("type", mimeType(entryName));
+        response.put("base64", Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP));
+        return response;
     }
 
     private boolean isImageName(String name) {
