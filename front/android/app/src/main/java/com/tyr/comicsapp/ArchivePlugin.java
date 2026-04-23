@@ -128,20 +128,23 @@ public class ArchivePlugin extends Plugin {
         archiveExecutor.execute(() -> {
             JSArray archiveItems = new JSArray();
             JSArray errorItems = new JSArray();
+            String firstErrorMessage = null;
 
             for (Uri archiveUri : archiveUris) {
                 try {
                     archiveItems.put(buildArchiveResponse(archiveUri));
                 } catch (Exception error) {
+                    String errorMessage = error.getMessage() == null ? "扫描压缩包失败" : error.getMessage();
+                    if (firstErrorMessage == null) firstErrorMessage = errorMessage;
                     JSObject item = new JSObject();
                     item.put("title", cleanArchiveTitle(queryDisplayName(archiveUri, "压缩包漫画")));
-                    item.put("message", error.getMessage() == null ? "扫描压缩包失败" : error.getMessage());
+                    item.put("message", errorMessage);
                     errorItems.put(item);
                 }
             }
 
             if (archiveItems.length() == 0) {
-                rejectOnMain(call, "选择的压缩包里没有可阅读的图片");
+                rejectOnMain(call, firstErrorMessage == null ? "选择的压缩包里没有可阅读的图片" : firstErrorMessage);
                 return;
             }
 
@@ -153,7 +156,8 @@ public class ArchivePlugin extends Plugin {
     }
 
     private JSObject buildArchiveResponse(Uri archiveUri) throws Exception {
-        List<ArchivePage> pages = scanArchive(archiveUri);
+        ArchiveScanResult scan = scanArchive(archiveUri);
+        List<ArchivePage> pages = scan.pages;
         if (pages.isEmpty()) {
             throw new Exception("压缩包里没有可阅读的图片");
         }
@@ -173,6 +177,10 @@ public class ArchivePlugin extends Plugin {
         response.put("title", cleanArchiveTitle(fileName));
         response.put("archiveUri", archiveUri.toString());
         response.put("imageCount", pages.size());
+        response.put("partial", scan.partial);
+        if (scan.partial) {
+            response.put("warning", "压缩包可能没有下载完整，已只索引可读取的页面。");
+        }
         response.put("pages", pageItems);
         return response;
     }
@@ -210,29 +218,53 @@ public class ArchivePlugin extends Plugin {
         }
     }
 
-    private List<ArchivePage> scanArchive(Uri archiveUri) throws Exception {
+    private ArchiveScanResult scanArchive(Uri archiveUri) throws Exception {
         List<ArchivePage> pages = new ArrayList<>();
         InputStream input = getContext().getContentResolver().openInputStream(archiveUri);
         if (input == null) throw new Exception("无法读取压缩包");
+        boolean partial = false;
 
         try (InputStream archiveInput = input;
              ZipInputStream zip = new ZipInputStream(archiveInput)) {
-            ZipEntry entry;
-            while ((entry = zip.getNextEntry()) != null) {
+            while (pages.size() < MAX_IMAGES_PER_ARCHIVE) {
+                ZipEntry entry;
+                try {
+                    entry = zip.getNextEntry();
+                } catch (Exception error) {
+                    if (pages.isEmpty()) throw error;
+                    partial = true;
+                    break;
+                }
+
+                if (entry == null) break;
+
+                ArchivePage page = null;
                 if (pages.size() >= MAX_IMAGES_PER_ARCHIVE) break;
                 if (!entry.isDirectory() && isImageName(entry.getName())) {
-                    pages.add(new ArchivePage(
+                    page = new ArchivePage(
                         entry.getName(),
                         displayName(entry.getName()),
                         mimeType(entry.getName())
-                    ));
+                    );
+                    pages.add(page);
                 }
-                zip.closeEntry();
+
+                try {
+                    zip.closeEntry();
+                } catch (Exception error) {
+                    if (page != null) pages.remove(page);
+                    if (pages.isEmpty()) throw error;
+                    partial = true;
+                    break;
+                }
             }
+        } catch (Exception error) {
+            if (pages.isEmpty()) throw error;
+            partial = true;
         }
 
         pages.sort(Comparator.comparing(page -> page.entryName, this::naturalCompare));
-        return pages;
+        return new ArchiveScanResult(pages, partial);
     }
 
     private JSObject readEntryPayload(Uri archiveUri, String expectedEntryName) throws Exception {
@@ -363,6 +395,16 @@ public class ArchivePlugin extends Plugin {
             this.entryName = entryName;
             this.displayName = displayName;
             this.type = type;
+        }
+    }
+
+    private static class ArchiveScanResult {
+        final List<ArchivePage> pages;
+        final boolean partial;
+
+        ArchiveScanResult(List<ArchivePage> pages, boolean partial) {
+            this.pages = pages;
+            this.partial = partial;
         }
     }
 }

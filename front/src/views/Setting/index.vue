@@ -211,6 +211,7 @@
 
 <script setup lang="ts">
 import { archiveService } from '@/services/archiveService'
+import { archiveErrorMessage } from '@/services/archiveErrors'
 import { cloudService } from '@/services/cloudService'
 import { cloudThreadSettings } from '@/services/cloudThreadSettings'
 import { downloadSiteSettings } from '@/services/downloadSiteSettings'
@@ -276,11 +277,13 @@ async function handleNativeArchiveImport() {
 
     const manualTitle = requestedTitle()
     let totalImages = 0
+    let partialArchives = 0
     let lastManga: { id: string; title: string } | null = null
 
     for (const [index, archive] of archives.entries()) {
       const title = archives.length === 1 ? manualTitle || archive.title : archive.title
       message.value = `正在保存压缩包索引 ${index + 1}/${archives.length}：${title}`
+      if (archive.partial) partialArchives += 1
       const manga = await library.importArchiveRefs(
         title,
         archive.pages.map((page) => ({
@@ -298,12 +301,13 @@ async function handleNativeArchiveImport() {
     await library.refresh()
     importedManga.value = archives.length === 1 ? lastManga : null
     const skipped = result.errors?.length ? `，跳过 ${result.errors.length} 个无效压缩包` : ''
+    const partial = partialArchives > 0 ? `，其中 ${partialArchives} 个压缩包未下载完整，只导入可读取页面` : ''
     message.value = archives.length === 1 && lastManga
-      ? `已添加 ${lastManga.title}（${totalImages} 页，不解压不复制）${skipped}`
-      : `已添加 ${archives.length} 本压缩包漫画，共 ${totalImages} 页，不解压不复制${skipped}`
+      ? `已添加 ${lastManga.title}（${totalImages} 页，不解压不复制）${skipped}${partial}`
+      : `已添加 ${archives.length} 本压缩包漫画，共 ${totalImages} 页，不解压不复制${skipped}${partial}`
     importTitle.value = ''
   } catch (error) {
-    message.value = error instanceof Error ? error.message : '压缩包索引失败'
+    message.value = archiveErrorMessage(error, '压缩包索引')
   } finally {
     busy.value = false
   }
@@ -337,7 +341,7 @@ async function handleArchiveImport(event: Event) {
       : `已导入 ${files.length} 个压缩包，共 ${totalImages} 页`
     importTitle.value = ''
   } catch (error) {
-    message.value = error instanceof Error ? error.message : '导入失败'
+    message.value = archiveErrorMessage(error, '导入压缩包')
   } finally {
     busy.value = false
     input.value = ''

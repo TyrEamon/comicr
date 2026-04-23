@@ -1,4 +1,5 @@
 import JSZip from 'jszip'
+import { normalizeArchiveError } from './archiveErrors'
 import { archiveService } from './archiveService'
 import { cloudService } from './cloudService'
 import {
@@ -109,22 +110,26 @@ export const libraryService = {
   },
 
   async importArchive(file: File, source: MangaSource = 'archive', title?: string) {
-    const zip = await JSZip.loadAsync(file)
-    const entries = Object.values(zip.files)
-      .filter((entry) => !entry.dir && IMAGE_EXTENSIONS.has(extensionOf(entry.name)))
-      .sort((left, right) => collator.compare(left.name, right.name))
+    try {
+      const zip = await JSZip.loadAsync(file)
+      const entries = Object.values(zip.files)
+        .filter((entry) => !entry.dir && IMAGE_EXTENSIONS.has(extensionOf(entry.name)))
+        .sort((left, right) => collator.compare(left.name, right.name))
 
-    if (entries.length === 0) {
-      throw new Error('压缩包里没有可导入的图片')
+      if (entries.length === 0) {
+        throw new Error('压缩包里没有可导入的图片')
+      }
+
+      const blobs = await Promise.all(entries.map(async (entry) => ({
+        name: entry.name.split('/').pop() || entry.name,
+        type: mimeFromName(entry.name),
+        blob: await entry.async('blob'),
+      })))
+
+      return this.importImageBlobs(cleanManualTitle(title) || cleanArchiveTitle(file.name), blobs, source)
+    } catch (error) {
+      throw normalizeArchiveError(error, '导入压缩包')
     }
-
-    const blobs = await Promise.all(entries.map(async (entry) => ({
-      name: entry.name.split('/').pop() || entry.name,
-      type: mimeFromName(entry.name),
-      blob: await entry.async('blob'),
-    })))
-
-    return this.importImageBlobs(cleanManualTitle(title) || cleanArchiveTitle(file.name), blobs, source)
   },
 
   async importImageFiles(files: File[], source: MangaSource = 'archive', title?: string) {

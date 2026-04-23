@@ -1,4 +1,5 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
+import { normalizeArchiveError } from './archiveErrors'
 
 interface NativeArchivePage {
   name: string
@@ -11,6 +12,8 @@ interface NativeArchivePickResult {
   title: string
   archiveUri: string
   imageCount: number
+  partial?: boolean
+  warning?: string
   pages: NativeArchivePage[]
 }
 
@@ -47,15 +50,27 @@ export const archiveService = {
   },
 
   async pickArchive() {
-    return archivePlugin.pickArchive()
+    try {
+      return await archivePlugin.pickArchive()
+    } catch (error) {
+      throw normalizeArchiveError(error, '索引压缩包')
+    }
   },
 
   async pickArchives() {
-    return archivePlugin.pickArchives()
+    try {
+      return await archivePlugin.pickArchives()
+    } catch (error) {
+      throw normalizeArchiveError(error, '索引压缩包')
+    }
   },
 
   async readEntry(archiveUri: string, entryName: string, fallbackType = 'image/jpeg') {
-    const result = await archivePlugin.readEntry({ uri: archiveUri, entryName })
-    return base64ToBlob(result.base64, result.type || fallbackType)
+    try {
+      const result = await archivePlugin.readEntry({ uri: archiveUri, entryName })
+      return base64ToBlob(result.base64, result.type || fallbackType)
+    } catch (error) {
+      throw normalizeArchiveError(error, '读取压缩包页面')
+    }
   },
 }
