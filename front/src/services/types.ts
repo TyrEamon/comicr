@@ -62,6 +62,7 @@ export interface DownloadTask {
   outputPath?: string
   status: DownloadStatus
   error?: string
+  phase?: string
   current: number
   total: number
   createdAt: number

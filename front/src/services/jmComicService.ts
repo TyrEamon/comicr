@@ -1,13 +1,14 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
-import { cloudThreadSettings } from './cloudThreadSettings'
 import { downloadTargetService } from './downloadTargetService'
+import { jmThreadSettings } from './jmThreadSettings'
 
 export interface JmDownloadProgress {
   taskId: string
   current: number
   total: number
   title: string
+  phase?: string
   message: string
 }
 
@@ -60,7 +61,7 @@ export const jmComicService = {
       taskId,
       target: normalizeTarget(target),
       targetUri: downloadTarget?.uri,
-      threadCount: cloudThreadSettings.getSettings().threadCount,
+      threadCount: jmThreadSettings.getSettings().threadCount,
     })
   },
 

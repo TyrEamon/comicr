@@ -59,7 +59,7 @@
       <div class="setting-card-header">
         <div>
           <h2>下载位置</h2>
-          <p>{{ downloadTargetLabel }} · 云盘 {{ cloudThreadCount }} 线程</p>
+          <p>{{ downloadTargetLabel }}</p>
         </div>
         <span class="status-pill">{{ hasCustomDownloadTarget ? '自定义' : '默认' }}</span>
       </div>
@@ -80,17 +80,22 @@
           <label class="input-label">云盘线程数</label>
           <p>影响云盘封面读取和单本漫画下载速度</p>
         </div>
-        <div class="concurrency-options" role="group" aria-label="云盘线程数">
-          <button
-            v-for="value in cloudThreadOptions"
-            :key="value"
-            class="setting-chip"
-            :class="{ active: cloudThreadCount === value }"
-            type="button"
-            @click="setCloudThreadCount(value)"
-          >
-            {{ value }}
-          </button>
+        <div class="stepper-control" role="group" aria-label="云盘线程数">
+          <button class="stepper-button" type="button" :disabled="cloudThreadCount <= MIN_THREAD_COUNT" aria-label="减少云盘线程数" @click="setCloudThreadCount(cloudThreadCount - 1)">-</button>
+          <span class="stepper-value">{{ cloudThreadCount }}</span>
+          <button class="stepper-button" type="button" :disabled="cloudThreadCount >= MAX_CLOUD_THREAD_COUNT" aria-label="增加云盘线程数" @click="setCloudThreadCount(cloudThreadCount + 1)">+</button>
+        </div>
+      </div>
+
+      <div class="download-concurrency">
+        <div>
+          <label class="input-label">JM 线程数</label>
+          <p>只影响 JM 原图下载，图片还原和写入仍会顺序处理</p>
+        </div>
+        <div class="stepper-control" role="group" aria-label="JM 线程数">
+          <button class="stepper-button" type="button" :disabled="jmThreadCount <= MIN_THREAD_COUNT" aria-label="减少 JM 线程数" @click="setJmThreadCount(jmThreadCount - 1)">-</button>
+          <span class="stepper-value">{{ jmThreadCount }}</span>
+          <button class="stepper-button" type="button" :disabled="jmThreadCount >= MAX_JM_THREAD_COUNT" aria-label="增加 JM 线程数" @click="setJmThreadCount(jmThreadCount + 1)">+</button>
         </div>
       </div>
     </section>
@@ -157,6 +162,7 @@ import { archiveService } from '@/services/archiveService'
 import { cloudService } from '@/services/cloudService'
 import { cloudThreadSettings } from '@/services/cloudThreadSettings'
 import { downloadTargetService } from '@/services/downloadTargetService'
+import { jmThreadSettings } from '@/services/jmThreadSettings'
 import { localFolderService } from '@/services/localFolderService'
 import { useLibraryStore } from '@/stores/libraryStore'
 import { Archive, FolderOpen, HardDrive, Images, RotateCcw, Trash2 } from 'lucide-vue-next'
@@ -173,7 +179,10 @@ const cacheStats = ref({ usedBytes: 0, pageBytes: 0, coverBytes: 0, pageCount: 0
 const cacheLimitMb = ref(Math.round(cloudService.getCloudCacheSettings().maxBytes / 1024 / 1024))
 const clearCoverCache = ref(false)
 const cloudThreadCount = ref(cloudThreadSettings.getSettings().threadCount)
-const cloudThreadOptions = [1, 2, 3, 4]
+const jmThreadCount = ref(jmThreadSettings.getSettings().threadCount)
+const MIN_THREAD_COUNT = 1
+const MAX_CLOUD_THREAD_COUNT = 4
+const MAX_JM_THREAD_COUNT = 8
 const downloadTargetVersion = ref(0)
 const downloadTargetAvailable = downloadTargetService.isAvailable()
 const downloadTargetLabel = computed(() => {
@@ -364,6 +373,12 @@ function setCloudThreadCount(value: number) {
   message.value = `云盘线程数已设置为 ${settings.threadCount}`
 }
 
+function setJmThreadCount(value: number) {
+  const settings = jmThreadSettings.updateSettings({ threadCount: value })
+  jmThreadCount.value = settings.threadCount
+  message.value = `JM 线程数已设置为 ${settings.threadCount}`
+}
+
 async function saveCacheLimit() {
   busy.value = true
   try {
@@ -484,7 +499,9 @@ function formatBytes(value: number) {
 
 .download-concurrency {
   display: grid;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
   border-top: 1px solid rgba(153, 143, 131, 0.12);
   padding-top: 14px;
 }
@@ -494,24 +511,41 @@ function formatBytes(value: number) {
   font-size: 12px;
 }
 
-.concurrency-options {
+.stepper-control {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.setting-chip {
-  min-height: 42px;
+  grid-template-columns: 38px 48px 38px;
+  min-width: 124px;
+  overflow: hidden;
   border: 1px solid rgba(153, 143, 131, 0.18);
   border-radius: 14px;
-  color: rgba(209, 197, 183, 0.78);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.025);
 }
 
-.setting-chip.active {
-  color: #21180f;
-  border-color: transparent;
-  background: var(--color-accent);
+.stepper-button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 0;
+  color: rgba(209, 197, 183, 0.78);
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.stepper-button:disabled {
+  color: rgba(209, 197, 183, 0.26);
+}
+
+.stepper-value {
+  display: grid;
+  min-width: 48px;
+  height: 38px;
+  place-items: center;
+  border-inline: 1px solid rgba(153, 143, 131, 0.14);
+  color: var(--color-accent);
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .cover-cache-toggle {

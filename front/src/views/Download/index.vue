@@ -15,9 +15,20 @@
 
     <p v-if="message" class="message">{{ message }}</p>
 
-    <div class="tabs">
-      <button class="tab-button" :class="{ active: activeTab === 'active' }" type="button" @click="activeTab = 'active'">进行中</button>
-      <button class="tab-button" :class="{ active: activeTab === 'completed' }" type="button" @click="activeTab = 'completed'">已完成</button>
+    <div class="tabs-row">
+      <div class="tabs">
+        <button class="tab-button" :class="{ active: activeTab === 'active' }" type="button" @click="activeTab = 'active'">进行中</button>
+        <button class="tab-button" :class="{ active: activeTab === 'completed' }" type="button" @click="activeTab = 'completed'">已完成</button>
+      </div>
+      <button
+        v-if="activeTab === 'completed' && visibleTasks.length > 0"
+        class="clear-records-button"
+        type="button"
+        @click="clearCompletedRecords"
+      >
+        <Trash2 :size="15" />
+        清空记录
+      </button>
     </div>
 
     <section v-if="visibleTasks.length > 0" class="task-list">
@@ -30,7 +41,7 @@
             <h2>{{ task.name }}</h2>
             <p>{{ formatTaskAddress(task) }}</p>
             <div class="task-meta">
-              <span>{{ formatStatus(task.status) }}</span>
+              <span>{{ formatTaskStatus(task) }}</span>
               <span>{{ task.current }} / {{ task.total || '-' }}</span>
             </div>
             <p v-if="task.outputPath" class="task-output">{{ task.outputPath }}</p>
@@ -64,7 +75,7 @@
 <script setup lang="ts">
 import { downloadService } from '@/services/downloadService'
 import type { DownloadStatus, DownloadTask } from '@/services/types'
-import { Download as DownloadIcon, X } from 'lucide-vue-next'
+import { Download as DownloadIcon, Trash2, X } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 type Tab = 'active' | 'completed'
@@ -122,6 +133,15 @@ function cancelTask(taskId: string) {
   refresh()
 }
 
+function clearCompletedRecords() {
+  const confirmed = window.confirm('只清除下载记录，不会删除已保存的文件或书架漫画。确定清空吗？')
+  if (!confirmed) return
+
+  const removed = downloadService.clearCompletedRecords()
+  refresh()
+  message.value = removed > 0 ? `已清除 ${removed} 条下载记录。` : '没有可清除的下载记录。'
+}
+
 function canCancel(status: DownloadStatus) {
   return status === 'pending' || status === 'parsing' || status === 'downloading'
 }
@@ -136,6 +156,10 @@ function formatStatus(status: DownloadStatus) {
     cancelled: '已取消',
   }
   return labels[status]
+}
+
+function formatTaskStatus(task: DownloadTask) {
+  return task.phase || formatStatus(task.status)
 }
 
 function formatTaskAddress(task: DownloadTask) {
@@ -171,11 +195,18 @@ function progressPercent(task: DownloadTask) {
   font-size: 13px;
 }
 
+.tabs-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 26px 0 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .tabs {
   display: flex;
   gap: 28px;
-  margin: 26px 0 24px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .tab-button {
@@ -193,6 +224,21 @@ function progressPercent(task: DownloadTask) {
 .tab-button.active {
   border-color: var(--color-accent);
   color: var(--color-accent);
+}
+
+.clear-records-button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  padding: 0 10px;
+  border: 1px solid rgba(153, 143, 131, 0.16);
+  border-radius: 12px;
+  color: rgba(209, 197, 183, 0.66);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .task-list {

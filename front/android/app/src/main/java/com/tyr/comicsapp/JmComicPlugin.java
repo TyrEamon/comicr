@@ -111,9 +111,11 @@ public class JmComicPlugin extends Plugin {
                     }
 
                     DownloadedSource source = files.get(index);
+                    notifyProgress(taskId, index + 1, files.size(), title, "还原图片", "正在还原图片");
                     File file = source.segments > 0 ? decodeJmImage(source, tempDir, index) : source.file;
                     String outputExtension = source.segments > 0 ? ".jpg" : extensionOf(source.name);
                     String name = String.format(Locale.US, "%05d%s", index + 1, outputExtension);
+                    notifyProgress(taskId, index + 1, files.size(), title, "写入目录", "正在写入目录");
                     WrittenImage written = targetUri == null || targetUri.isEmpty()
                         ? copyToDefaultFolder(title, name, mimeType(name), file)
                         : copyToTreeFolder(Uri.parse(targetUri), title, name, mimeType(name), file);
@@ -124,7 +126,6 @@ public class JmComicPlugin extends Plugin {
                     item.put("name", name);
                     item.put("type", written.type);
                     images.put(item);
-                    notifyProgress(taskId, index + 1, files.size(), title, "写入下载目录");
                 }
 
                 JSObject response = new JSObject();
@@ -447,11 +448,16 @@ public class JmComicPlugin extends Plugin {
     }
 
     private void notifyProgress(String taskId, int current, int total, String title, String message) {
+        notifyProgress(taskId, current, total, title, message, message);
+    }
+
+    private void notifyProgress(String taskId, int current, int total, String title, String phase, String message) {
         JSObject payload = new JSObject();
         payload.put("taskId", taskId);
         payload.put("current", current);
         payload.put("total", total);
         payload.put("title", title);
+        payload.put("phase", phase);
         payload.put("message", message);
         getActivity().runOnUiThread(() -> notifyListeners("jmDownloadProgress", payload));
     }
@@ -480,7 +486,7 @@ public class JmComicPlugin extends Plugin {
         }
 
         public void onProgress(int current, int total, String message) {
-            notifyProgress(taskId, current, total, title, message);
+            notifyProgress(taskId, current, total, title, "下载原图", "下载原图");
         }
 
         public boolean isCancelled() {

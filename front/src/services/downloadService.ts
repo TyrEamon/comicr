@@ -113,6 +113,13 @@ export const downloadService = {
     return this.listTasks().filter((task) => ['completed', 'failed', 'cancelled'].includes(task.status))
   },
 
+  clearCompletedRecords() {
+    const tasks = loadTasks()
+    const nextTasks = tasks.filter((task) => !['completed', 'failed', 'cancelled'].includes(task.status))
+    saveTasks(nextTasks)
+    return tasks.length - nextTasks.length
+  },
+
   async start(url: string) {
     const trimmed = url.trim()
     if (!trimmed) {
@@ -295,6 +302,7 @@ export const downloadService = {
       source: 'jm',
       status: 'parsing',
       name: '正在解析 JM 漫画',
+      phase: '解析 JM 漫画',
       updatedAt: Date.now(),
     }
     setTask(currentTask)
@@ -306,6 +314,7 @@ export const downloadService = {
         ...currentTask,
         name: progress.title || currentTask.name,
         status: 'downloading',
+        phase: progress.phase || progress.message || '下载 JM 图片',
         current: progress.current,
         total: progress.total,
         updatedAt: Date.now(),
