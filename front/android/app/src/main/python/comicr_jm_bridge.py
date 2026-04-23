@@ -56,7 +56,7 @@ def proxy_url_from_config(proxy_config):
     password = str(proxy_config.get("password") or "")
     auth = ""
     if username or password:
-        auth = f"{quote(username)}:{quote(password)}@"
+        auth = f"{quote(username, safe='')}:{quote(password, safe='')}@"
 
     url = f"{scheme}://{auth}{host}:{port}"
     return {

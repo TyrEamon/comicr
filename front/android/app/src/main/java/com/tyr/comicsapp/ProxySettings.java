@@ -40,24 +40,32 @@ public final class ProxySettings {
                     .header("Proxy-Authorization", credential)
                     .build());
             } else {
-                installSocksAuthenticator(host, port, username, password);
+                installSocksAuthenticator(username, password);
             }
+        } else if (proxyType == Proxy.Type.SOCKS) {
+            clearSocksAuthenticator();
         }
 
         return builder.build();
     }
 
-    private static void installSocksAuthenticator(String host, int port, String username, String password) {
+    private static void installSocksAuthenticator(String username, String password) {
+        System.setProperty("java.net.socks.username", username);
+        System.setProperty("java.net.socks.password", password);
         java.net.Authenticator.setDefault(new java.net.Authenticator() {
             @Override
             protected PasswordAuthentication getPasswordAuthentication() {
-                if (getRequestorType() == RequestorType.PROXY
-                    && host.equalsIgnoreCase(getRequestingHost())
-                    && port == getRequestingPort()) {
+                if (getRequestorType() == RequestorType.PROXY) {
                     return new PasswordAuthentication(username, password.toCharArray());
                 }
                 return null;
             }
         });
+    }
+
+    private static void clearSocksAuthenticator() {
+        System.clearProperty("java.net.socks.username");
+        System.clearProperty("java.net.socks.password");
+        java.net.Authenticator.setDefault(null);
     }
 }
