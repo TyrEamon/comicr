@@ -22,8 +22,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.zip.ZipEntry;
@@ -33,7 +35,17 @@ import java.util.zip.ZipInputStream;
 @CapacitorPlugin(name = "Archive")
 public class ArchivePlugin extends Plugin {
     private static final int MAX_IMAGES_PER_ARCHIVE = 5000;
+    private static final int ZIP_CACHE_LIMIT = 2;
     private final ExecutorService archiveExecutor = Executors.newSingleThreadExecutor();
+    private final Object zipCacheLock = new Object();
+    private final LinkedHashMap<String, CachedZipArchive> zipCache = new LinkedHashMap<>(4, 0.75f, true);
+
+    @Override
+    protected void handleOnDestroy() {
+        closeCachedZipArchives();
+        archiveExecutor.shutdownNow();
+        super.handleOnDestroy();
+    }
 
     @PluginMethod
     public void pickArchive(PluginCall call) {
@@ -273,16 +285,15 @@ public class ArchivePlugin extends Plugin {
         try {
             return readEntryPayloadRandomAccess(archiveUri, expectedEntryName);
         } catch (Exception ignored) {
+            removeCachedZipArchive(archiveUri);
             return readEntryPayloadSequential(archiveUri, expectedEntryName);
         }
     }
 
     private JSObject readEntryPayloadRandomAccess(Uri archiveUri, String expectedEntryName) throws Exception {
-        ParcelFileDescriptor descriptor = getContext().getContentResolver().openFileDescriptor(archiveUri, "r");
-        if (descriptor == null) throw new Exception("无法随机读取压缩包");
-
-        try (ParcelFileDescriptor closeableDescriptor = descriptor;
-             ZipFile zipFile = new ZipFile("/proc/self/fd/" + closeableDescriptor.getFd())) {
+        CachedZipArchive cachedArchive = getCachedZipArchive(archiveUri);
+        synchronized (cachedArchive) {
+            ZipFile zipFile = cachedArchive.zipFile;
             ZipEntry entry = zipFile.getEntry(expectedEntryName);
             if (entry == null || entry.isDirectory()) {
                 throw new Exception("压缩包里找不到该页面");
@@ -291,6 +302,58 @@ public class ArchivePlugin extends Plugin {
             try (InputStream input = zipFile.getInputStream(entry)) {
                 return buildEntryResponse(entry.getName(), input);
             }
+        }
+    }
+
+    private CachedZipArchive getCachedZipArchive(Uri archiveUri) throws Exception {
+        String key = archiveUri.toString();
+        synchronized (zipCacheLock) {
+            CachedZipArchive cachedArchive = zipCache.get(key);
+            if (cachedArchive != null) return cachedArchive;
+
+            ParcelFileDescriptor descriptor = getContext().getContentResolver().openFileDescriptor(archiveUri, "r");
+            if (descriptor == null) throw new Exception("无法随机读取压缩包");
+
+            try {
+                CachedZipArchive nextArchive = new CachedZipArchive(
+                    descriptor,
+                    new ZipFile("/proc/self/fd/" + descriptor.getFd())
+                );
+                zipCache.put(key, nextArchive);
+                trimZipCacheLocked();
+                return nextArchive;
+            } catch (Exception error) {
+                try {
+                    descriptor.close();
+                } catch (Exception ignored) {
+                    // ignore
+                }
+                throw error;
+            }
+        }
+    }
+
+    private void trimZipCacheLocked() {
+        while (zipCache.size() > ZIP_CACHE_LIMIT) {
+            Map.Entry<String, CachedZipArchive> eldest = zipCache.entrySet().iterator().next();
+            zipCache.remove(eldest.getKey());
+            eldest.getValue().close();
+        }
+    }
+
+    private void removeCachedZipArchive(Uri archiveUri) {
+        synchronized (zipCacheLock) {
+            CachedZipArchive cachedArchive = zipCache.remove(archiveUri.toString());
+            if (cachedArchive != null) cachedArchive.close();
+        }
+    }
+
+    private void closeCachedZipArchives() {
+        synchronized (zipCacheLock) {
+            for (CachedZipArchive cachedArchive : zipCache.values()) {
+                cachedArchive.close();
+            }
+            zipCache.clear();
         }
     }
 
@@ -436,6 +499,30 @@ public class ArchivePlugin extends Plugin {
         ArchiveScanResult(List<ArchivePage> pages, boolean partial) {
             this.pages = pages;
             this.partial = partial;
+        }
+    }
+
+    private static class CachedZipArchive {
+        final ParcelFileDescriptor descriptor;
+        final ZipFile zipFile;
+
+        CachedZipArchive(ParcelFileDescriptor descriptor, ZipFile zipFile) {
+            this.descriptor = descriptor;
+            this.zipFile = zipFile;
+        }
+
+        void close() {
+            try {
+                zipFile.close();
+            } catch (Exception ignored) {
+                // ignore
+            }
+
+            try {
+                descriptor.close();
+            } catch (Exception ignored) {
+                // ignore
+            }
         }
     }
 }
