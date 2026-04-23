@@ -54,6 +54,7 @@
 </template>
 
 <script setup lang="ts">
+import { searchService } from '@/services/searchService'
 import { useLibraryStore } from '@/stores/libraryStore'
 import { BookOpen } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -106,11 +107,11 @@ onBeforeRouteLeave((to) => {
 })
 
 const visibleMangas = computed(() => {
-  const query = searchQuery.value.trim().toLowerCase()
+  const query = searchQuery.value.trim()
 
   return library.mangas
     .filter((manga) => {
-      if (query && !manga.title.toLowerCase().includes(query)) {
+      if (query && !searchService.matchesText(manga.title, query)) {
         return false
       }
 
