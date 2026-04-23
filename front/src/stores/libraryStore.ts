@@ -111,16 +111,18 @@ export const useLibraryStore = defineStore('library', () => {
     title: string,
     images: Array<{ name: string; type?: string; uri: string }>,
     source: MangaSource = 'folder',
+    options?: { id?: string; localPath?: string },
   ) {
-    return libraryService.importImageRefs(title, images, source)
+    return libraryService.importImageRefs(title, images, source, options)
   }
 
   async function importArchiveRefs(
     title: string,
     images: Array<{ name: string; type?: string; archiveUri: string; entryName: string }>,
     refreshAfter = true,
+    options?: { id?: string; localPath?: string },
   ) {
-    const manga = await libraryService.importArchiveRefs(title, images)
+    const manga = await libraryService.importArchiveRefs(title, images, options)
     if (refreshAfter) await refresh()
     return manga
   }

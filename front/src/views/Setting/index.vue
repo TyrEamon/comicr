@@ -7,7 +7,7 @@
       <div class="setting-card-header">
         <div>
           <h2>漫画库</h2>
-          <p>{{ library.count }} 本漫画</p>
+          <p>{{ library.count }} 本漫画 · {{ authorizedFolderRoots.length }} 个授权目录</p>
         </div>
       </div>
 
@@ -28,7 +28,11 @@
         </button>
         <button class="primary-button import-button" type="button" :disabled="busy" @click="handleFolderImport">
           <FolderOpen :size="18" />
-          扫描
+          授权目录
+        </button>
+        <button class="ghost-button import-button" type="button" :disabled="busy || authorizedFolderRoots.length === 0" @click="handleRefreshAuthorizedFolders">
+          <RotateCcw :size="18" />
+          刷新书库
         </button>
         <button class="ghost-button import-button" type="button" :disabled="busy" @click="imageInput?.click()">
           <Images :size="18" />
@@ -217,6 +221,7 @@ import { cloudThreadSettings } from '@/services/cloudThreadSettings'
 import { downloadSiteSettings } from '@/services/downloadSiteSettings'
 import { downloadTargetService } from '@/services/downloadTargetService'
 import { jmThreadSettings } from '@/services/jmThreadSettings'
+import { libraryService } from '@/services/libraryService'
 import { localFolderService } from '@/services/localFolderService'
 import { useLibraryStore } from '@/stores/libraryStore'
 import { Archive, FolderOpen, HardDrive, Images, RotateCcw, Trash2 } from 'lucide-vue-next'
@@ -240,6 +245,7 @@ const MAX_CLOUD_THREAD_COUNT = 4
 const MAX_JM_THREAD_COUNT = 8
 const downloadTargetVersion = ref(0)
 const downloadTargetAvailable = downloadTargetService.isAvailable()
+const authorizedFolderRoots = ref(localFolderService.getAuthorizedRoots())
 const downloadTargetLabel = computed(() => {
   downloadTargetVersion.value
   return downloadTargetService.getTargetLabel()
@@ -377,28 +383,100 @@ async function handleFolderImport() {
     const folders = await localFolderService.pickFolder((progress) => {
       message.value = `正在建立索引 ${progress.current}/${progress.total}：${progress.title}`
     })
-    const manualTitle = requestedTitle()
-    let totalImages = 0
-    let lastManga: { id: string; title: string } | null = null
-
-    for (const [index, folder] of folders.entries()) {
-      const title = folders.length === 1 ? manualTitle || folder.title : folder.title
-      message.value = `正在保存索引 ${index + 1}/${folders.length}：${title}`
-      const manga = await library.importImageRefs(title, folder.images)
-      totalImages += manga.imageCount
-      lastManga = { id: manga.id, title: manga.title }
-    }
+    const result = await importLocalLibraryItems(folders, requestedTitle())
 
     await library.refresh()
-    importedManga.value = folders.length === 1 ? lastManga : null
-    message.value = folders.length === 1 && lastManga
-      ? `已添加 ${lastManga.title}（${totalImages} 页，不复制原图）`
-      : `已添加 ${folders.length} 本漫画，共 ${totalImages} 页，不复制原图`
+    authorizedFolderRoots.value = localFolderService.getAuthorizedRoots()
+    importedManga.value = folders.length === 1 ? result.lastManga : null
+    message.value = result.count === 1 && result.lastManga
+      ? `已添加 ${result.lastManga.title}（${result.totalImages} 页，不复制原图）`
+      : `已更新 ${result.count} 本漫画，共 ${result.totalImages} 页，不复制原图`
     importTitle.value = ''
   } catch (error) {
     message.value = error instanceof Error ? error.message : '文件夹导入失败'
   } finally {
     busy.value = false
+  }
+}
+
+async function handleRefreshAuthorizedFolders() {
+  busy.value = true
+  importedManga.value = null
+  message.value = '正在刷新已授权漫画库...'
+  try {
+    const folders = await localFolderService.scanAuthorizedFolders((progress) => {
+      message.value = `正在扫描授权目录 ${progress.current}/${progress.total}：${progress.title}`
+    })
+    const result = await importLocalLibraryItems(folders)
+
+    await library.refresh()
+    authorizedFolderRoots.value = localFolderService.getAuthorizedRoots()
+    importedManga.value = result.count === 1 ? result.lastManga : null
+    message.value = result.count === 0
+      ? '已授权目录里没有识别到新漫画'
+      : `已刷新 ${result.count} 本漫画，共 ${result.totalImages} 页`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '刷新书库失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function importLocalLibraryItems(
+  folders: Awaited<ReturnType<typeof localFolderService.pickFolder>>,
+  manualTitle?: string,
+) {
+  let totalImages = 0
+  let count = 0
+  let lastManga: { id: string; title: string } | null = null
+
+  for (const [index, folder] of folders.entries()) {
+    const title = folders.length === 1 ? manualTitle || folder.title : folder.title
+    const mangaId = libraryService.stableImportId(folder.sourceType, folder.sourceKey)
+    const localPath = `${folder.sourceType}:${folder.sourceKey}`
+    const existing = await libraryService.getManga(mangaId)
+    if (existing?.localPath === localPath && existing.imageCount === folder.imageCount) {
+      continue
+    }
+
+    message.value = `正在保存索引 ${index + 1}/${folders.length}：${title}`
+
+    const manga = folder.sourceType === 'archive'
+      ? await library.importArchiveRefs(
+        title,
+        folder.images
+          .filter((image) => image.archiveUri && image.entryName)
+          .map((image) => ({
+            name: image.name,
+            type: image.type,
+            archiveUri: image.archiveUri as string,
+            entryName: image.entryName as string,
+          })),
+        false,
+        { id: mangaId, localPath },
+      )
+      : await library.importImageRefs(
+        title,
+        folder.images
+          .filter((image) => image.uri)
+          .map((image) => ({
+            name: image.name,
+            type: image.type,
+            uri: image.uri as string,
+          })),
+        'folder',
+        { id: mangaId, localPath },
+      )
+
+    totalImages += manga.imageCount
+    count += 1
+    lastManga = { id: manga.id, title: manga.title }
+  }
+
+  return {
+    count,
+    totalImages,
+    lastManga,
   }
 }
 
@@ -543,7 +621,7 @@ function formatBytes(value: number) {
 
 .import-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 

@@ -28,6 +28,8 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 @CapacitorPlugin(name = "LocalFolder")
 public class LocalFolderPlugin extends Plugin {
@@ -46,6 +48,30 @@ public class LocalFolderPlugin extends Plugin {
         intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         intent.addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         startActivityForResult(call, intent, "pickFolderResult");
+    }
+
+    @PluginMethod
+    public void scanFolder(PluginCall call) {
+        String uriValue = call.getString("uri");
+        if (uriValue == null || uriValue.isEmpty()) {
+            call.reject("缺少已授权目录");
+            return;
+        }
+
+        Uri treeUri = Uri.parse(uriValue);
+        DocumentFile root = DocumentFile.fromTreeUri(getContext(), treeUri);
+        if (root == null || !root.isDirectory()) {
+            call.reject("已授权目录不可用，请重新选择漫画库文件夹");
+            return;
+        }
+
+        scannerExecutor.execute(() -> {
+            try {
+                resolveOnMain(call, buildFolderResponse(root, treeUri));
+            } catch (Exception error) {
+                rejectOnMain(call, error.getMessage() == null ? "文件夹扫描失败" : error.getMessage());
+            }
+        });
     }
 
     @PluginMethod
@@ -98,31 +124,37 @@ public class LocalFolderPlugin extends Plugin {
 
         scannerExecutor.execute(() -> {
             try {
-                List<ScannedManga> mangas = scanRoot(root, treeUri);
-                if (mangas.isEmpty()) {
-                    rejectOnMain(call, "文件夹里没有识别到漫画图片目录");
-                    return;
-                }
-
-                JSArray mangaItems = new JSArray();
-                for (ScannedManga manga : mangas) {
-                    JSObject item = new JSObject();
-                    item.put("id", manga.id);
-                    item.put("title", manga.title);
-                    item.put("imageCount", manga.pages.size());
-                    item.put("structureType", manga.structureType);
-                    item.put("pages", pagesToJson(manga.pages));
-                    mangaItems.put(item);
-                }
-
-                JSObject response = new JSObject();
-                response.put("rootTitle", safeName(root, "漫画库"));
-                response.put("mangas", mangaItems);
-                resolveOnMain(call, response);
+                resolveOnMain(call, buildFolderResponse(root, treeUri));
             } catch (Exception error) {
                 rejectOnMain(call, error.getMessage() == null ? "文件夹扫描失败" : error.getMessage());
             }
         });
+    }
+
+    private JSObject buildFolderResponse(DocumentFile root, Uri treeUri) throws Exception {
+        List<ScannedManga> mangas = scanRoot(root, treeUri);
+        if (mangas.isEmpty()) {
+            throw new Exception("文件夹里没有识别到漫画目录或压缩包");
+        }
+
+        JSArray mangaItems = new JSArray();
+        for (ScannedManga manga : mangas) {
+            JSObject item = new JSObject();
+            item.put("id", manga.id);
+            item.put("title", manga.title);
+            item.put("imageCount", manga.pages.size());
+            item.put("structureType", manga.structureType);
+            item.put("sourceType", manga.sourceType);
+            item.put("sourceKey", manga.sourceKey);
+            item.put("pages", pagesToJson(manga.pages));
+            mangaItems.put(item);
+        }
+
+        JSObject response = new JSObject();
+        response.put("rootTitle", safeName(root, "漫画库"));
+        response.put("rootUri", treeUri.toString());
+        response.put("mangas", mangaItems);
+        return response;
     }
 
     private List<ScannedManga> scanRoot(DocumentFile root, Uri treeUri) {
@@ -136,15 +168,27 @@ public class LocalFolderPlugin extends Plugin {
             return mangas;
         }
 
+        appendArchiveMangas(mangas, rootSnapshot.archiveFiles);
+
         List<DocumentFile> childDirs = sortedFiles(rootSnapshot.childDirs);
         for (DocumentFile child : childDirs) {
             if (mangas.size() >= MAX_MANGAS) break;
 
-            ScannedManga manga = buildManga(snapshot(child), null, false);
+            DirectorySnapshot childSnapshot = snapshot(child);
+            ScannedManga manga = buildManga(childSnapshot, null, false);
             if (manga != null) mangas.add(manga);
+            appendArchiveMangas(mangas, childSnapshot.archiveFiles);
         }
 
         return mangas;
+    }
+
+    private void appendArchiveMangas(List<ScannedManga> mangas, List<DocumentFile> archiveFiles) {
+        for (DocumentFile archive : sortedFiles(archiveFiles)) {
+            if (mangas.size() >= MAX_MANGAS) return;
+            ScannedManga manga = buildArchiveManga(archive);
+            if (manga != null) mangas.add(manga);
+        }
     }
 
     private boolean shouldTreatSelectionAsSingleManga(DirectorySnapshot root) {
@@ -201,6 +245,23 @@ public class LocalFolderPlugin extends Plugin {
             UUID.randomUUID().toString(),
             title == null || title.isEmpty() ? "文件夹导入" : title,
             structureType,
+            "folder",
+            mangaDir.uri,
+            pages
+        );
+    }
+
+    private ScannedManga buildArchiveManga(DocumentFile archive) {
+        List<PageFile> pages = scanArchivePages(archive.getUri());
+        if (pages.isEmpty()) return null;
+
+        String title = cleanArchiveTitle(safeName(archive, "压缩包漫画"));
+        return new ScannedManga(
+            UUID.randomUUID().toString(),
+            title,
+            "archive",
+            "archive",
+            archive.getUri().toString(),
             pages
         );
     }
@@ -208,18 +269,22 @@ public class LocalFolderPlugin extends Plugin {
     private DirectorySnapshot snapshot(DocumentFile folder) {
         List<DocumentFile> imageFiles = new ArrayList<>();
         List<DocumentFile> childDirs = new ArrayList<>();
+        List<DocumentFile> archiveFiles = new ArrayList<>();
 
         for (DocumentFile file : folder.listFiles()) {
             if (file.isDirectory()) {
                 childDirs.add(file);
             } else if (isImage(file)) {
                 imageFiles.add(file);
+            } else if (isArchive(file)) {
+                archiveFiles.add(file);
             }
         }
 
         imageFiles = sortedFiles(imageFiles);
         childDirs = sortedFiles(childDirs);
-        return new DirectorySnapshot(safeName(folder, "未命名目录"), imageFiles, childDirs);
+        archiveFiles = sortedFiles(archiveFiles);
+        return new DirectorySnapshot(safeName(folder, "未命名目录"), folder.getUri().toString(), imageFiles, childDirs, archiveFiles);
     }
 
     private List<DirectorySnapshot> imageChildSnapshots(DirectorySnapshot folder) {
@@ -242,7 +307,7 @@ public class LocalFolderPlugin extends Plugin {
             String displayName = sectionName == null || sectionName.isEmpty()
                 ? imageName
                 : sectionName + "/" + imageName;
-            pages.add(new PageFile(displayName, mimeType(image), image.getUri().toString()));
+            pages.add(new PageFile(displayName, mimeType(image), image.getUri().toString(), null, null));
         }
     }
 
@@ -270,6 +335,67 @@ public class LocalFolderPlugin extends Plugin {
             || lower.endsWith(".jpeg")
             || lower.endsWith(".png")
             || lower.endsWith(".webp")
+            || lower.endsWith(".avif");
+    }
+
+    private boolean isArchive(DocumentFile file) {
+        String name = file.getName();
+        if (name == null) return false;
+
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".zip") || lower.endsWith(".cbz");
+    }
+
+    private List<PageFile> scanArchivePages(Uri archiveUri) {
+        List<PageFile> pages = new ArrayList<>();
+        InputStream input = null;
+        try {
+            input = getContext().getContentResolver().openInputStream(archiveUri);
+            if (input == null) return pages;
+
+            try (InputStream archiveInput = input;
+                 ZipInputStream zip = new ZipInputStream(archiveInput)) {
+                input = null;
+
+                while (pages.size() < MAX_IMAGES_PER_MANGA) {
+                    ZipEntry entry = zip.getNextEntry();
+                    if (entry == null) break;
+                    if (!entry.isDirectory() && isImageName(entry.getName())) {
+                        pages.add(new PageFile(
+                            displayName(entry.getName()),
+                            mimeType(entry.getName()),
+                            null,
+                            archiveUri.toString(),
+                            entry.getName()
+                        ));
+                    }
+                    zip.closeEntry();
+                }
+            }
+        } catch (Exception ignored) {
+            // Keep readable pages from partial archives.
+        } finally {
+            if (input != null) {
+                try {
+                    input.close();
+                } catch (Exception ignored) {
+                    // ignore
+                }
+            }
+        }
+
+        pages.sort(Comparator.comparing(page -> page.displayName, this::naturalCompare));
+        return pages;
+    }
+
+    private boolean isImageName(String name) {
+        String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".jpg")
+            || lower.endsWith(".jpeg")
+            || lower.endsWith(".png")
+            || lower.endsWith(".webp")
+            || lower.endsWith(".gif")
+            || lower.endsWith(".bmp")
             || lower.endsWith(".avif");
     }
 
@@ -384,6 +510,27 @@ public class LocalFolderPlugin extends Plugin {
         return "image/jpeg";
     }
 
+    private String mimeType(String name) {
+        String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".gif")) return "image/gif";
+        if (lower.endsWith(".bmp")) return "image/bmp";
+        if (lower.endsWith(".avif")) return "image/avif";
+        return "image/jpeg";
+    }
+
+    private String displayName(String entryName) {
+        int slashIndex = entryName.lastIndexOf('/');
+        return slashIndex >= 0 ? entryName.substring(slashIndex + 1) : entryName;
+    }
+
+    private String cleanArchiveTitle(String name) {
+        String safeName = name == null || name.isEmpty() ? "压缩包漫画" : name;
+        String title = safeName.replaceAll("(?i)\\.(zip|cbz)$", "").trim();
+        return title.isEmpty() ? "压缩包漫画" : title;
+    }
+
     private String safeName(DocumentFile file, String fallback) {
         String name = file.getName();
         return name == null || name.isEmpty() ? queryDisplayName(file.getUri(), fallback) : name;
@@ -441,7 +588,9 @@ public class LocalFolderPlugin extends Plugin {
             JSObject item = new JSObject();
             item.put("name", page.displayName);
             item.put("type", page.type);
-            item.put("uri", page.uri);
+            if (page.uri != null) item.put("uri", page.uri);
+            if (page.archiveUri != null) item.put("archiveUri", page.archiveUri);
+            if (page.entryName != null) item.put("entryName", page.entryName);
             items.put(item);
         }
         return items;
@@ -457,13 +606,17 @@ public class LocalFolderPlugin extends Plugin {
 
     private static class DirectorySnapshot {
         final String name;
+        final String uri;
         final List<DocumentFile> imageFiles;
         final List<DocumentFile> childDirs;
+        final List<DocumentFile> archiveFiles;
 
-        DirectorySnapshot(String name, List<DocumentFile> imageFiles, List<DocumentFile> childDirs) {
+        DirectorySnapshot(String name, String uri, List<DocumentFile> imageFiles, List<DocumentFile> childDirs, List<DocumentFile> archiveFiles) {
             this.name = name;
+            this.uri = uri;
             this.imageFiles = imageFiles;
             this.childDirs = childDirs;
+            this.archiveFiles = archiveFiles;
         }
     }
 
@@ -471,12 +624,16 @@ public class LocalFolderPlugin extends Plugin {
         final String id;
         final String title;
         final String structureType;
+        final String sourceType;
+        final String sourceKey;
         final List<PageFile> pages;
 
-        ScannedManga(String id, String title, String structureType, List<PageFile> pages) {
+        ScannedManga(String id, String title, String structureType, String sourceType, String sourceKey, List<PageFile> pages) {
             this.id = id;
             this.title = title;
             this.structureType = structureType;
+            this.sourceType = sourceType;
+            this.sourceKey = sourceKey;
             this.pages = pages;
         }
     }
@@ -485,11 +642,15 @@ public class LocalFolderPlugin extends Plugin {
         final String displayName;
         final String type;
         final String uri;
+        final String archiveUri;
+        final String entryName;
 
-        PageFile(String displayName, String type, String uri) {
+        PageFile(String displayName, String type, String uri, String archiveUri, String entryName) {
             this.displayName = displayName;
             this.type = type;
             this.uri = uri;
+            this.archiveUri = archiveUri;
+            this.entryName = entryName;
         }
     }
 }

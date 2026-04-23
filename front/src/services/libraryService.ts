@@ -80,6 +80,15 @@ function randomId(prefix: string) {
   return `${prefix}-${value}`
 }
 
+function stableId(prefix: string, key: string) {
+  let hash = 0
+  for (let index = 0; index < key.length; index += 1) {
+    hash = Math.imul(31, hash) + key.charCodeAt(index)
+    hash |= 0
+  }
+  return `${prefix}-${(hash >>> 0).toString(36)}`
+}
+
 function loadJsonRecord<T>(key: string, fallback: T): T {
   try {
     const rawValue = localStorage.getItem(key)
@@ -94,6 +103,10 @@ function saveJsonRecord<T>(key: string, value: T) {
 }
 
 export const libraryService = {
+  stableImportId(prefix: string, key: string) {
+    return stableId(prefix, key)
+  },
+
   async listMangas() {
     const localMangas = await listMangas()
     const cloudMangas = cloudService.getWebDavIndexedMangas()
@@ -193,23 +206,28 @@ export const libraryService = {
     title: string,
     images: Array<{ name: string; type?: string; uri: string }>,
     source: MangaSource = 'folder',
+    options?: { id?: string; localPath?: string },
   ) {
     if (images.length === 0) {
       throw new Error('没有可索引的图片')
     }
 
     const now = Date.now()
-    const mangaId = randomId('manga')
+    const mangaId = options?.id || randomId('manga')
+    const existing = options?.id ? await getRecord<MangaItem>('mangas', mangaId) : undefined
     const manga: MangaItem = {
       id: mangaId,
       title: title.trim() || '未命名漫画',
-      localPath: mangaId,
+      localPath: options?.localPath || mangaId,
       imageCount: images.length,
       source,
-      addedAt: now,
+      addedAt: existing?.addedAt ?? now,
       updatedAt: now,
     }
 
+    if (existing) {
+      await deleteImagesByManga(mangaId)
+    }
     await putRecord('mangas', manga)
 
     for (const [index, image] of images.entries()) {
@@ -230,23 +248,28 @@ export const libraryService = {
   async importArchiveRefs(
     title: string,
     images: Array<{ name: string; type?: string; archiveUri: string; entryName: string }>,
+    options?: { id?: string; localPath?: string },
   ) {
     if (images.length === 0) {
       throw new Error('没有可索引的压缩包图片')
     }
 
     const now = Date.now()
-    const mangaId = randomId('manga')
+    const mangaId = options?.id || randomId('manga')
+    const existing = options?.id ? await getRecord<MangaItem>('mangas', mangaId) : undefined
     const manga: MangaItem = {
       id: mangaId,
       title: title.trim() || '未命名漫画',
-      localPath: mangaId,
+      localPath: options?.localPath || mangaId,
       imageCount: images.length,
       source: 'archive',
-      addedAt: now,
+      addedAt: existing?.addedAt ?? now,
       updatedAt: now,
     }
 
+    if (existing) {
+      await deleteImagesByManga(mangaId)
+    }
     await putRecord('mangas', manga)
 
     for (const [index, image] of images.entries()) {
