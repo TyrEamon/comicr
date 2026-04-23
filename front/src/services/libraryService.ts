@@ -1,4 +1,5 @@
 import JSZip from 'jszip'
+import { Capacitor } from '@capacitor/core'
 import { normalizeArchiveError } from './archiveErrors'
 import { archiveService } from './archiveService'
 import { cloudService } from './cloudService'
@@ -299,6 +300,9 @@ export const libraryService = {
     if (!cover) return ''
     if (cover.blob) return URL.createObjectURL(cover.blob)
     if (cover.uri && localFolderService.isAvailable()) {
+      const contentSrc = Capacitor.convertFileSrc(cover.uri)
+      if (contentSrc) return contentSrc
+
       const blob = await localFolderService.readImage(cover.uri, cover.type)
       return URL.createObjectURL(blob)
     }
@@ -338,6 +342,11 @@ export const libraryService = {
       return URL.createObjectURL(blob)
     }
     if (!image.uri) return ''
+
+    if (localFolderService.isAvailable()) {
+      const contentSrc = Capacitor.convertFileSrc(image.uri)
+      if (contentSrc) return contentSrc
+    }
 
     const blob = await localFolderService.readImage(image.uri, image.type)
     return URL.createObjectURL(blob)
