@@ -6,7 +6,7 @@
     </section>
 
     <section class="download-box surface-card">
-      <input v-model="url" class="text-input" type="url" placeholder="粘贴下载链接" aria-label="下载链接" @keydown.enter="startDownload" />
+      <input v-model="url" class="text-input" type="text" placeholder="粘贴下载链接或 JM 车号" aria-label="下载链接" @keydown.enter="startDownload" />
       <button class="primary-button" type="button" :disabled="submitting" @click="startDownload">
         <DownloadIcon :size="18" />
         开始下载
@@ -141,6 +141,9 @@ function formatStatus(status: DownloadStatus) {
 function formatTaskAddress(task: DownloadTask) {
   if (task.source === 'webdav') {
     return `WebDAV ${task.remotePath || task.url.replace(/^webdav:/, '')}`
+  }
+  if (task.source === 'jm') {
+    return `JM ${task.url.replace(/^jm:/i, '')}`
   }
   return task.url
 }

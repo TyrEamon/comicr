@@ -1,6 +1,7 @@
 import { libraryService } from './libraryService'
 import { downloadTargetService } from './downloadTargetService'
 import { cloudDownloadService } from './cloudDownloadService'
+import { jmComicService } from './jmComicService'
 import type { DownloadTask } from './types'
 
 const TASKS_KEY = 'comics-app:downloads:v1'
@@ -117,13 +118,17 @@ export const downloadService = {
     if (!trimmed) {
       throw new Error('请输入下载链接')
     }
+    const isJm = jmComicService.isJmTarget(trimmed)
+    if (isJm && !jmComicService.isAvailable()) {
+      throw new Error('JM 下载需要 Android APK 环境')
+    }
 
     const now = Date.now()
     const task: DownloadTask = {
       id: taskId(),
       url: trimmed,
-      name: '准备下载',
-      source: 'link',
+      name: isJm ? '准备下载 JM 漫画' : '准备下载',
+      source: isJm ? 'jm' : 'link',
       status: 'pending',
       current: 0,
       total: 0,
@@ -178,12 +183,19 @@ export const downloadService = {
     if (!task || ['completed', 'failed', 'cancelled'].includes(task.status)) {
       return
     }
+    if (task.source === 'jm') {
+      void jmComicService.cancel(task.id)
+    }
     setTask({ ...task, status: 'cancelled', updatedAt: Date.now(), completedAt: Date.now() })
   },
 
   async run(task: DownloadTask) {
     if (task.source === 'webdav') {
       await this.runWebDav(task)
+      return
+    }
+    if (task.source === 'jm') {
+      await this.runJm(task)
       return
     }
 
@@ -274,6 +286,61 @@ export const downloadService = {
         completedAt: Date.now(),
         updatedAt: Date.now(),
       })
+    }
+  },
+
+  async runJm(task: DownloadTask) {
+    let currentTask: DownloadTask = {
+      ...task,
+      source: 'jm',
+      status: 'parsing',
+      name: '正在解析 JM 漫画',
+      updatedAt: Date.now(),
+    }
+    setTask(currentTask)
+
+    const listener = await jmComicService.onProgress((progress) => {
+      if (progress.taskId !== task.id || isTaskCancelled(task.id)) return
+
+      currentTask = {
+        ...currentTask,
+        name: progress.title || currentTask.name,
+        status: 'downloading',
+        current: progress.current,
+        total: progress.total,
+        updatedAt: Date.now(),
+      }
+      setTask(currentTask)
+    })
+
+    try {
+      const result = await jmComicService.download(task.id, task.url)
+      if (isTaskCancelled(task.id)) return
+
+      const manga = await libraryService.importImageRefs(result.title, result.images, 'download')
+      setTask({
+        ...currentTask,
+        name: manga.title,
+        status: 'completed',
+        mangaId: manga.id,
+        outputPath: result.outputPath,
+        current: manga.imageCount,
+        total: manga.imageCount,
+        completedAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    } catch (error) {
+      if (isTaskCancelled(task.id)) return
+
+      setTask({
+        ...currentTask,
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'JM 下载失败',
+        completedAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    } finally {
+      await listener.remove()
     }
   },
 
