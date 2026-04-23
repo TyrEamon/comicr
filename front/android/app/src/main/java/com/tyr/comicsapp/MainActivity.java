@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ArchivePlugin.class);
         registerPlugin(DownloadTargetPlugin.class);
         registerPlugin(WebDavPlugin.class);
+        registerPlugin(JmComicPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
