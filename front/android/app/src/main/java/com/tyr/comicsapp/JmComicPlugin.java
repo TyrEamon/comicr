@@ -66,6 +66,8 @@ public class JmComicPlugin extends Plugin {
         String taskId = call.getString("taskId", UUID.randomUUID().toString());
         String targetUri = call.getString("targetUri", "");
         int threadCount = Math.max(1, Math.min(call.getInt("threadCount", 4), 8));
+        JSObject proxy = call.getObject("proxy");
+        final String proxyJson = proxy == null ? "{}" : proxy.toString();
 
         if (target.isEmpty()) {
             call.reject("缺少 JM 链接或车号");
@@ -84,7 +86,7 @@ public class JmComicPlugin extends Plugin {
                 ProgressBridge progress = new ProgressBridge(taskId);
                 PyObject result = python()
                     .getModule("comicr_jm_bridge")
-                    .callAttr("download", target, tempDir.getAbsolutePath(), threadCount, progress);
+                    .callAttr("download", target, tempDir.getAbsolutePath(), threadCount, progress, proxyJson);
 
                 if (isCancelled(taskId)) {
                     deleteRecursively(tempDir);

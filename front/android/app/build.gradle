@@ -37,6 +37,7 @@ chaquopy {
             install "pycryptodome"
             install "PyYAML"
             install "requests"
+            install "PySocks"
         }
     }
 }

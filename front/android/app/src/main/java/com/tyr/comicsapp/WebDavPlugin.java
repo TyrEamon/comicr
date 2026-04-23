@@ -35,6 +35,8 @@ public class WebDavPlugin extends Plugin {
         String authorization = call.getString("authorization", "");
         String depth = call.getString("depth", "1");
         String body = call.getString("body", "");
+        JSObject proxy = call.getObject("proxy");
+        final JSObject requestProxy = proxy == null ? new JSObject() : proxy;
 
         if (url == null || url.isEmpty()) {
             call.reject("缺少 WebDAV 地址");
@@ -42,6 +44,7 @@ public class WebDavPlugin extends Plugin {
         }
 
         executor.execute(() -> {
+            OkHttpClient requestClient = ProxySettings.apply(client, requestProxy);
             Request request = new Request.Builder()
                 .url(url)
                 .method("PROPFIND", RequestBody.create(body, XML_MEDIA_TYPE))
@@ -50,7 +53,7 @@ public class WebDavPlugin extends Plugin {
                 .header("Authorization", authorization)
                 .build();
 
-            try (Response response = client.newCall(request).execute()) {
+            try (Response response = requestClient.newCall(request).execute()) {
                 JSObject result = new JSObject();
                 result.put("status", response.code());
                 result.put("data", response.body() == null ? "" : response.body().string());
@@ -65,6 +68,8 @@ public class WebDavPlugin extends Plugin {
     public void getFile(PluginCall call) {
         String url = call.getString("url");
         String authorization = call.getString("authorization", "");
+        JSObject proxy = call.getObject("proxy");
+        final JSObject requestProxy = proxy == null ? new JSObject() : proxy;
 
         if (url == null || url.isEmpty()) {
             call.reject("缺少 WebDAV 文件地址");
@@ -72,13 +77,14 @@ public class WebDavPlugin extends Plugin {
         }
 
         executor.execute(() -> {
+            OkHttpClient requestClient = ProxySettings.apply(client, requestProxy);
             Request request = new Request.Builder()
                 .url(url)
                 .get()
                 .header("Authorization", authorization)
                 .build();
 
-            try (Response response = client.newCall(request).execute()) {
+            try (Response response = requestClient.newCall(request).execute()) {
                 ResponseBody body = response.body();
                 byte[] bytes = body == null ? new byte[0] : body.bytes();
                 String mimeType = body == null || body.contentType() == null

@@ -1,4 +1,5 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
+import { networkProxySettings, type NativeProxyConfig } from './networkProxySettings'
 
 type ResponseType = 'text' | 'base64' | 'head'
 
@@ -8,6 +9,7 @@ interface NativeHttpRequestOptions {
   headers?: Record<string, string>
   body?: string
   responseType?: ResponseType
+  proxy?: NativeProxyConfig
 }
 
 interface NativeHttpResponse {
@@ -59,9 +61,11 @@ function browserHeaders(headers?: Record<string, string>) {
 
 async function request(options: NativeHttpRequestOptions) {
   if (isAndroid()) {
+    const proxy = options.proxy ?? networkProxySettings.getNativeProxy()
     const response = await nativeHttpPlugin.request({
       ...options,
       headers: headersWithDefaults(options.headers),
+      ...(proxy ? { proxy } : {}),
     })
     if (response.status < 200 || response.status >= 300) {
       throw new Error(`请求失败 ${response.status}`)

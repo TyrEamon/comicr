@@ -94,6 +94,47 @@
     <section class="surface-card setting-card storage-card">
       <div class="setting-card-header">
         <div>
+          <h2>网络代理</h2>
+          <p>{{ proxySummary }}</p>
+        </div>
+        <span class="status-pill">{{ proxyEnabled ? '应用内' : '全局' }}</span>
+      </div>
+
+      <label class="cover-cache-toggle">
+        <input v-model="proxyEnabled" type="checkbox" @change="toggleProxyMode" />
+        <span>启用应用内代理，关闭时走手机当前全局网络/代理</span>
+      </label>
+
+      <label class="input-label" for="network-proxy">代理地址</label>
+      <input
+        id="network-proxy"
+        v-model="proxyInput"
+        class="text-input"
+        type="text"
+        placeholder="socks5://host:port 或 tg://socks?server=...&port=..."
+        autocomplete="off"
+      />
+      <p class="proxy-help">开启后只影响 Comicr 内部的云盘、下载解析、图片下载和 JM 下载。</p>
+
+      <div class="cache-actions">
+        <button class="ghost-button import-button" type="button" :disabled="busy" @click="saveProxySettings">
+          <HardDrive :size="18" />
+          保存代理
+        </button>
+        <button class="ghost-button import-button" type="button" :disabled="busy" @click="testProxySettings">
+          <Wifi :size="18" />
+          测试连接
+        </button>
+        <button class="ghost-button import-button danger-action" type="button" :disabled="busy || !proxyInput.trim()" @click="clearProxySettings">
+          <Trash2 :size="18" />
+          关闭代理
+        </button>
+      </div>
+    </section>
+
+    <section class="surface-card setting-card storage-card">
+      <div class="setting-card-header">
+        <div>
           <h2>下载位置</h2>
           <p>{{ downloadTargetLabel }}</p>
         </div>
@@ -160,16 +201,17 @@
       <div class="setting-card-header">
         <div>
           <h2>下载链接 Tips</h2>
-          <p>下载页可粘贴作品页链接或 JM 车号。</p>
+          <p>下载页可粘贴漫画/本子链接或 JM 码。</p>
         </div>
         <span class="status-pill">支持格式</span>
       </div>
 
       <div class="tips-list">
-        <span>JM / 18Comic：jm123456、photo 链接</span>
-        <span>E-Hentai / ExHentai：gallery 链接</span>
-        <span>Telegraph：telegra.ph 文章页</span>
-        <span>WNACG / nhentai / Hitomi：作品详情页</span>
+        <span>JM / 18Comic：jm123456 或 18comic.vip/photo/123456</span>
+        <span>E-Hentai / ExHentai：e-hentai.org/g/123456/token/</span>
+        <span>Telegraph：telegra.ph/xxx-xx-xx</span>
+        <span>WNACG：wnacg.com/photos-index-aid-123.html</span>
+        <span>nhentai / Hitomi：nhentai.xxx/g/123456/、hitomi.la/...-123.html</span>
       </div>
     </section>
 
@@ -221,11 +263,14 @@
       </div>
     </section>
 
-    <section class="surface-card setting-card">
+    <section class="surface-card setting-card about-card">
       <div>
-        <h2>打包方式</h2>
-        <p>GitHub Actions · Debug APK</p>
+        <h2>About</h2>
+        <p>Power by TyrEamon</p>
       </div>
+      <a class="about-link" href="https://github.com/TyrEamon/comicr" target="_blank" rel="noreferrer">
+        GitHub · TyrEamon/comicr
+      </a>
     </section>
   </div>
 </template>
@@ -240,8 +285,10 @@ import { downloadTargetService } from '@/services/downloadTargetService'
 import { jmThreadSettings } from '@/services/jmThreadSettings'
 import { libraryService } from '@/services/libraryService'
 import { localFolderService } from '@/services/localFolderService'
+import { nativeHttpService } from '@/services/nativeHttpService'
+import { networkProxySettings } from '@/services/networkProxySettings'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { Archive, FolderOpen, HardDrive, Images, RotateCcw, Trash2 } from 'lucide-vue-next'
+import { Archive, FolderOpen, HardDrive, Images, RotateCcw, Trash2, Wifi } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 
 const library = useLibraryStore()
@@ -257,6 +304,9 @@ const clearCoverCache = ref(false)
 const cloudThreadCount = ref(cloudThreadSettings.getSettings().threadCount)
 const jmThreadCount = ref(jmThreadSettings.getSettings().threadCount)
 const exhentaiCookie = ref(downloadSiteSettings.getSettings().exhentaiCookie)
+const proxyInput = ref(networkProxySettings.toInputValue())
+const proxyEnabled = ref(networkProxySettings.getSettings().enabled)
+const proxySettingsVersion = ref(0)
 const MIN_THREAD_COUNT = 1
 const MAX_CLOUD_THREAD_COUNT = 4
 const MAX_JM_THREAD_COUNT = 8
@@ -270,6 +320,10 @@ const downloadTargetLabel = computed(() => {
 const hasCustomDownloadTarget = computed(() => {
   downloadTargetVersion.value
   return Boolean(downloadTargetService.getTarget())
+})
+const proxySummary = computed(() => {
+  proxySettingsVersion.value
+  return networkProxySettings.describe()
 })
 
 onMounted(() => {
@@ -591,6 +645,58 @@ function clearExhentaiCookie() {
   message.value = 'ExHentai Cookie 已清空'
 }
 
+function saveProxySettings() {
+  try {
+    let settings = networkProxySettings.updateFromInput(proxyInput.value)
+    settings = networkProxySettings.setEnabled(proxyEnabled.value)
+    proxyInput.value = networkProxySettings.toInputValue(settings)
+    proxySettingsVersion.value += 1
+    message.value = settings.type === 'off'
+      ? '未填写应用内代理，当前走手机全局网络'
+      : `网络代理已保存：${networkProxySettings.describe(settings)}`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '保存网络代理失败'
+  }
+}
+
+async function testProxySettings() {
+  busy.value = true
+  try {
+    let settings = networkProxySettings.updateFromInput(proxyInput.value)
+    settings = networkProxySettings.setEnabled(true)
+    proxyEnabled.value = true
+    proxyInput.value = networkProxySettings.toInputValue(settings)
+    proxySettingsVersion.value += 1
+    if (settings.type === 'off') {
+      throw new Error('请先填写代理地址')
+    }
+    await nativeHttpService.head('https://www.gstatic.com/generate_204')
+    message.value = `代理测试通过：${networkProxySettings.describe(settings)}`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '代理测试失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+function clearProxySettings() {
+  networkProxySettings.clear()
+  proxyInput.value = ''
+  proxyEnabled.value = false
+  proxySettingsVersion.value += 1
+  message.value = '应用内代理已关闭，当前走手机全局网络'
+}
+
+function toggleProxyMode() {
+  try {
+    const settings = networkProxySettings.setEnabled(proxyEnabled.value)
+    proxySettingsVersion.value += 1
+    message.value = settings.enabled ? '已启用应用内代理' : '已切回手机全局网络/代理'
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '切换代理模式失败'
+  }
+}
+
 async function saveCacheLimit() {
   busy.value = true
   try {
@@ -741,6 +847,29 @@ function formatBytes(value: number) {
   background: rgba(255, 255, 255, 0.022);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.proxy-help {
+  color: rgba(209, 197, 183, 0.58);
+  font-size: 12px;
+}
+
+.about-card {
+  display: grid;
+  gap: 14px;
+}
+
+.about-link {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  color: var(--color-accent);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.about-link:active {
+  opacity: 0.78;
 }
 
 .stepper-control {

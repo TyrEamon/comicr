@@ -6,7 +6,7 @@
     </section>
 
     <section class="download-box surface-card">
-      <input v-model="url" class="text-input" type="text" placeholder="粘贴下载链接或 JM 车号" aria-label="下载链接" @keydown.enter="startDownload" />
+      <input v-model="url" class="text-input" type="text" placeholder="粘贴漫画/本子链接或 JM 码" aria-label="漫画/本子链接" @keydown.enter="startDownload" />
       <button class="primary-button" type="button" :disabled="submitting" @click="startDownload">
         <DownloadIcon :size="18" />
         开始下载
@@ -128,7 +128,7 @@ function refresh() {
 
 async function startDownload() {
   if (!url.value.trim()) {
-    message.value = '请先粘贴链接。'
+    message.value = '请先粘贴漫画/本子链接或 JM 码。'
     return
   }
 

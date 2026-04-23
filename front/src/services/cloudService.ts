@@ -1,5 +1,6 @@
 import { deleteRecord, getAllRecords, getRecord, putRecord } from './db'
 import { cloudThreadSettings } from './cloudThreadSettings'
+import { networkProxySettings, type NativeProxyConfig } from './networkProxySettings'
 import type {
   CloudCacheSettings,
   CloudCacheStats,
@@ -91,10 +92,12 @@ interface NativeWebDavPlugin {
     authorization: string
     depth: string
     body: string
+    proxy?: NativeProxyConfig
   }): Promise<NativeWebDavPropfindResult>
   getFile(options: {
     url: string
     authorization: string
+    proxy?: NativeProxyConfig
   }): Promise<NativeWebDavFileResult>
 }
 
@@ -286,6 +289,11 @@ function isAndroidNative() {
   return Capacitor.getPlatform() === 'android'
 }
 
+function nativeProxyOption() {
+  const proxy = networkProxySettings.getNativeProxy()
+  return proxy ? { proxy } : {}
+}
+
 function wait(ms: number) {
   return new Promise((resolve) => {
     globalThis.setTimeout(resolve, ms)
@@ -435,6 +443,7 @@ async function propfind(relativePath = '', depth = 1) {
           authorization,
           depth: String(depth),
           body: WEBDAV_PROPFIND_BODY,
+          ...nativeProxyOption(),
         })
         return {
           status: nativeResult.status,
@@ -476,6 +485,7 @@ async function fetchBlobByPath(relativePath: string, isDir = false) {
       () => nativeWebDav.getFile({
         url: buildResourceUrl(config, relativePath, isDir).toString(),
         authorization,
+        ...nativeProxyOption(),
       }),
       '下载远程文件',
     )

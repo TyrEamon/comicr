@@ -1,7 +1,8 @@
+import json
 import os
 import re
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
@@ -34,8 +35,39 @@ def parse_target(target):
     raise ValueError(f"unsupported JM target: {target}")
 
 
-def create_option(base_dir, image_threads):
+def proxy_url_from_config(proxy_config):
+    if isinstance(proxy_config, str):
+        try:
+            proxy_config = json.loads(proxy_config or "{}")
+        except Exception:
+            proxy_config = {}
+
+    if not proxy_config or not proxy_config.get("enabled"):
+        return {}
+
+    host = str(proxy_config.get("host") or "").strip()
+    port = int(proxy_config.get("port") or 0)
+    if not host or port <= 0:
+        return {}
+
+    proxy_type = str(proxy_config.get("type") or "socks5").lower()
+    scheme = "http" if proxy_type == "http" else "socks5h"
+    username = str(proxy_config.get("username") or "")
+    password = str(proxy_config.get("password") or "")
+    auth = ""
+    if username or password:
+        auth = f"{quote(username)}:{quote(password)}@"
+
+    url = f"{scheme}://{auth}{host}:{port}"
+    return {
+        "http": url,
+        "https": url,
+    }
+
+
+def create_option(base_dir, image_threads, proxy_config=None):
     from jmcomic import JmOption
+    proxies = proxy_url_from_config(proxy_config)
 
     return JmOption(
         dir_rule={
@@ -60,7 +92,7 @@ def create_option(base_dir, image_threads):
                 "type": "requests",
                 "meta_data": {
                     "headers": None,
-                    "proxies": {},
+                    "proxies": proxies,
                 },
             },
             "impl": "api",
@@ -142,13 +174,13 @@ def emit_progress(progress, current, total, message):
         pass
 
 
-def download(target, output_dir, image_threads=4, progress=None):
+def download(target, output_dir, image_threads=4, progress=None, proxy_config=None):
     import jmcomic
 
     target_type, target_id = parse_target(target)
     os.makedirs(output_dir, exist_ok=True)
 
-    option = create_option(output_dir, image_threads)
+    option = create_option(output_dir, image_threads, proxy_config)
     client = option.build_jm_client()
     title = f"JM {target_id}"
 

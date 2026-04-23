@@ -125,7 +125,7 @@ export const downloadService = {
   async start(url: string) {
     const trimmed = url.trim()
     if (!trimmed) {
-      throw new Error('请输入下载链接')
+      throw new Error('请输入漫画/本子链接或 JM 码')
     }
     const isJm = jmComicService.isJmTarget(trimmed)
     if (isJm && !jmComicService.isAvailable()) {

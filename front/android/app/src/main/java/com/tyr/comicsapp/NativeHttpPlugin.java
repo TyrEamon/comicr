@@ -36,6 +36,8 @@ public class NativeHttpPlugin extends Plugin {
         String responseType = call.getString("responseType", "text");
         JSObject headers = call.getObject("headers");
         final JSObject requestHeaders = headers == null ? new JSObject() : headers;
+        JSObject proxy = call.getObject("proxy");
+        final JSObject requestProxy = proxy == null ? new JSObject() : proxy;
 
         if (url == null || url.isEmpty()) {
             call.reject("缺少请求地址");
@@ -44,8 +46,9 @@ public class NativeHttpPlugin extends Plugin {
 
         executor.execute(() -> {
             try {
+                OkHttpClient requestClient = ProxySettings.apply(client, requestProxy);
                 Request request = buildRequest(url, method, body, requestHeaders);
-                try (Response response = client.newCall(request).execute()) {
+                try (Response response = requestClient.newCall(request).execute()) {
                     ResponseBody responseBody = response.body();
                     String mimeType = responseBody == null || responseBody.contentType() == null
                         ? "application/octet-stream"

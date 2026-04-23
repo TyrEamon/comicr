@@ -2,6 +2,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
 import { downloadTargetService } from './downloadTargetService'
 import { jmThreadSettings } from './jmThreadSettings'
+import { networkProxySettings, type NativeProxyConfig } from './networkProxySettings'
 
 export interface JmDownloadProgress {
   taskId: string
@@ -31,6 +32,7 @@ interface NativeJmComicPlugin {
     target: string
     targetUri?: string
     threadCount: number
+    proxy?: NativeProxyConfig
   }): Promise<JmDownloadResult>
   cancel(options: { taskId: string }): Promise<{ cancelled: boolean }>
   addListener(
@@ -57,11 +59,13 @@ export const jmComicService = {
 
   download(taskId: string, target: string) {
     const downloadTarget = downloadTargetService.getTarget()
+    const proxy = networkProxySettings.getNativeProxy()
     return jmComicPlugin.download({
       taskId,
       target: normalizeTarget(target),
       targetUri: downloadTarget?.uri,
       threadCount: jmThreadSettings.getSettings().threadCount,
+      ...(proxy ? { proxy } : {}),
     })
   },
 
