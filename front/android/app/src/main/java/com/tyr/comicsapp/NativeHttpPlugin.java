@@ -35,9 +35,7 @@ public class NativeHttpPlugin extends Plugin {
         String body = call.getString("body", "");
         String responseType = call.getString("responseType", "text");
         JSObject headers = call.getObject("headers");
-        if (headers == null) {
-            headers = new JSObject();
-        }
+        final JSObject requestHeaders = headers == null ? new JSObject() : headers;
 
         if (url == null || url.isEmpty()) {
             call.reject("缺少请求地址");
@@ -46,7 +44,7 @@ public class NativeHttpPlugin extends Plugin {
 
         executor.execute(() -> {
             try {
-                Request request = buildRequest(url, method, body, headers);
+                Request request = buildRequest(url, method, body, requestHeaders);
                 try (Response response = client.newCall(request).execute()) {
                     ResponseBody responseBody = response.body();
                     String mimeType = responseBody == null || responseBody.contentType() == null
