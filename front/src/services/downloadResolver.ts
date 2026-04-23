@@ -6,13 +6,30 @@ import {
   type DownloadPlan,
   type DownloadPlanPage,
 } from './downloadPlan'
+import { isEhentaiUrl, resolveEhentaiDownloadPlan } from './downloadParsers/ehentaiParser'
+import { isHitomiUrl, resolveHitomiDownloadPlan } from './downloadParsers/hitomiParser'
+import { isNhentaiUrl, resolveNhentaiDownloadPlan } from './downloadParsers/nhentaiParser'
 import { isTelegraphUrl, resolveTelegraphDownloadPlan } from './downloadParsers/telegraphParser'
+import { isWnacgUrl, resolveWnacgDownloadPlan } from './downloadParsers/wnacgParser'
+import { nativeHttpService } from './nativeHttpService'
 
 export async function resolveDownloadPlan(rawUrl: string): Promise<DownloadPlan> {
   const pageUrl = new URL(rawUrl).toString()
 
   if (isTelegraphUrl(pageUrl)) {
     return resolveTelegraphDownloadPlan(pageUrl)
+  }
+  if (isEhentaiUrl(pageUrl)) {
+    return resolveEhentaiDownloadPlan(pageUrl)
+  }
+  if (isNhentaiUrl(pageUrl)) {
+    return resolveNhentaiDownloadPlan(pageUrl)
+  }
+  if (isHitomiUrl(pageUrl)) {
+    return resolveHitomiDownloadPlan(pageUrl)
+  }
+  if (isWnacgUrl(pageUrl)) {
+    return resolveWnacgDownloadPlan(pageUrl)
   }
 
   if (IMAGE_URL_RE.test(pageUrl)) {
@@ -32,12 +49,7 @@ export async function resolveDownloadPlan(rawUrl: string): Promise<DownloadPlan>
 }
 
 async function resolveGenericHtmlDownloadPlan(pageUrl: string): Promise<DownloadPlan> {
-  const response = await fetch(pageUrl)
-  if (!response.ok) {
-    throw new Error(`页面请求失败 ${response.status}`)
-  }
-
-  const html = await response.text()
+  const html = await nativeHttpService.getText(pageUrl)
   const document = new DOMParser().parseFromString(html, 'text/html')
   const title = cleanTitle(document.querySelector('title')?.textContent || '', new URL(pageUrl).hostname)
   const seen = new Set<string>()

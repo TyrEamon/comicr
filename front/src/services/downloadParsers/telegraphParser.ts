@@ -5,6 +5,7 @@ import {
   type DownloadPlan,
   type DownloadPlanPage,
 } from '../downloadPlan'
+import { nativeHttpService } from '../nativeHttpService'
 
 const TELEGRAPH_HOSTS = new Set(['telegra.ph', 'telegraph.com'])
 
@@ -17,12 +18,7 @@ export function isTelegraphUrl(value: string) {
 }
 
 export async function resolveTelegraphDownloadPlan(pageUrl: string): Promise<DownloadPlan> {
-  const response = await fetch(pageUrl)
-  if (!response.ok) {
-    throw new Error(`Telegraph 页面请求失败 ${response.status}`)
-  }
-
-  const html = await response.text()
+  const html = await nativeHttpService.getText(pageUrl)
   const document = new DOMParser().parseFromString(html, 'text/html')
   const title = cleanTitle(
     document.querySelector('article h1')?.textContent

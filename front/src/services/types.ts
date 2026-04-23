@@ -57,7 +57,7 @@ export interface DownloadTask {
   id: string
   url: string
   name: string
-  source?: 'link' | 'webdav' | 'jm' | 'telegraph'
+  source?: 'link' | 'webdav' | 'jm' | 'telegraph' | 'ehentai' | 'exhentai' | 'nhentai' | 'hitomi' | 'wnacg'
   remotePath?: string
   outputPath?: string
   status: DownloadStatus

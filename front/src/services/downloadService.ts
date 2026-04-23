@@ -3,12 +3,12 @@ import { downloadTargetService } from './downloadTargetService'
 import { cloudDownloadService } from './cloudDownloadService'
 import { jmComicService } from './jmComicService'
 import { resolveDownloadPlan } from './downloadResolver'
+import { nativeHttpService } from './nativeHttpService'
 import type { DownloadPlanPage } from './downloadPlan'
 import type { DownloadTask } from './types'
 
 const TASKS_KEY = 'comics-app:downloads:v1'
 const ACTIVE_STATUSES = new Set(['pending', 'parsing', 'downloading'])
-const FORBIDDEN_FETCH_HEADERS = new Set(['cookie', 'host', 'origin', 'referer', 'user-agent'])
 let queueRunning = false
 
 function loadTasks() {
@@ -58,18 +58,10 @@ function isTaskCancelled(taskIdValue: string) {
 }
 
 async function fetchBlob(page: DownloadPlanPage) {
-  const headers = Object.fromEntries(
-    Object.entries(page.headers ?? {})
-      .filter(([key]) => !FORBIDDEN_FETCH_HEADERS.has(key.toLowerCase())),
-  )
-  const response = await fetch(page.url, {
-    headers,
-    referrer: page.referer,
+  return nativeHttpService.getBlob(page.url, {
+    ...(page.headers ?? {}),
+    ...(page.referer ? { Referer: page.referer } : {}),
   })
-  if (!response.ok) {
-    throw new Error(`请求失败 ${response.status}`)
-  }
-  return response.blob()
 }
 
 export const downloadService = {

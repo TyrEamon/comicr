@@ -1,4 +1,4 @@
-export type DownloadPlanSource = 'link' | 'telegraph'
+export type DownloadPlanSource = 'link' | 'telegraph' | 'ehentai' | 'exhentai' | 'nhentai' | 'hitomi' | 'wnacg'
 
 export interface DownloadPlanPage {
   url: string
@@ -38,4 +38,20 @@ export function imageNameFromUrl(url: string, index: number) {
   } catch {
     return `${String(index + 1).padStart(5, '0')}.jpg`
   }
+}
+
+export async function mapLimit<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>) {
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex
+      nextIndex += 1
+      results[currentIndex] = await worker(items[currentIndex], currentIndex)
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => runWorker()))
+  return results
 }

@@ -223,6 +223,21 @@ function formatTaskAddress(task: DownloadTask) {
   if (task.source === 'telegraph') {
     return `Telegraph ${task.url}`
   }
+  if (task.source === 'ehentai') {
+    return `E-Hentai ${task.url}`
+  }
+  if (task.source === 'exhentai') {
+    return `ExHentai ${task.url}`
+  }
+  if (task.source === 'nhentai') {
+    return `nhentai ${task.url}`
+  }
+  if (task.source === 'hitomi') {
+    return `Hitomi ${task.url}`
+  }
+  if (task.source === 'wnacg') {
+    return `WNACG ${task.url}`
+  }
   return task.url
 }
 
