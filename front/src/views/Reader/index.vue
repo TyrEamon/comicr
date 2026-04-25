@@ -1625,7 +1625,7 @@ function handleContinuousScroll() {
   box-sizing: border-box;
   height: 100dvh;
   overflow: hidden;
-  padding: max(8px, calc(var(--safe-top) - 8px)) 24px calc(var(--safe-bottom) + 34px);
+  padding: max(0px, calc(var(--safe-top) - 34px)) 24px calc(var(--safe-bottom) + 34px);
 }
 
 .gallery-text-viewport {

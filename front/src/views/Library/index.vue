@@ -13,26 +13,28 @@
             :aria-expanded="sortPanelVisible"
             @click="toggleSortPanel"
           >
-            <ArrowDownAZ :size="16" aria-hidden="true" />
+            <ArrowDownAZ :size="16" class="sort-button-icon" aria-hidden="true" />
             <span>{{ sortModeLabel }}</span>
-            <ChevronDown :size="15" aria-hidden="true" />
+            <ChevronDown :size="15" class="sort-button-chevron" aria-hidden="true" />
           </button>
 
-          <div v-if="sortPanelVisible" class="sort-popover surface-card" role="menu" aria-label="排序方式">
-            <button
-              v-for="option in sortOptions"
-              :key="option.id"
-              class="sort-option"
-              :class="{ active: sortMode === option.id }"
-              type="button"
-              role="menuitemradio"
-              :aria-checked="sortMode === option.id"
-              @click="selectSortMode(option.id)"
-            >
-              <span>{{ option.label }}</span>
-              <Check v-if="sortMode === option.id" :size="16" aria-hidden="true" />
-            </button>
-          </div>
+          <Transition name="library-popover">
+            <div v-if="sortPanelVisible" class="sort-popover surface-card" role="menu" aria-label="排序方式" @keydown.escape.stop="sortPanelVisible = false">
+              <button
+                v-for="option in sortOptions"
+                :key="option.id"
+                class="sort-option"
+                :class="{ active: sortMode === option.id }"
+                type="button"
+                role="menuitemradio"
+                :aria-checked="sortMode === option.id"
+                @click="selectSortMode(option.id)"
+              >
+                <span>{{ option.label }}</span>
+                <Check v-if="sortMode === option.id" :size="16" aria-hidden="true" />
+              </button>
+            </div>
+          </Transition>
         </div>
 
         <div ref="filterPanelRef" class="filter-control">
@@ -44,21 +46,23 @@
             :aria-expanded="filterPanelVisible"
             @click="toggleFilterPanel"
           >
-            <SlidersHorizontal :size="16" aria-hidden="true" />
+            <SlidersHorizontal :size="16" class="filter-button-icon" aria-hidden="true" />
             <span>过滤设置</span>
           </button>
 
-          <div v-if="filterPanelVisible" class="filter-popover surface-card" role="menu">
-            <label v-for="option in allFilterOptions" :key="option.id" class="filter-option">
-              <input
-                type="checkbox"
-                :checked="allFilters[option.id]"
-                @change="handleAllFilterChange(option.id, $event)"
-              >
-              <span>{{ option.label }}</span>
-              <Check v-if="allFilters[option.id]" :size="15" aria-hidden="true" />
-            </label>
-          </div>
+          <Transition name="library-popover">
+            <div v-if="filterPanelVisible" class="filter-popover surface-card" role="menu" @keydown.escape.stop="filterPanelVisible = false">
+              <label v-for="option in allFilterOptions" :key="option.id" class="filter-option">
+                <input
+                  type="checkbox"
+                  :checked="allFilters[option.id]"
+                  @change="handleAllFilterChange(option.id, $event)"
+                >
+                <span>{{ option.label }}</span>
+                <Check v-if="allFilters[option.id]" :size="15" aria-hidden="true" />
+              </label>
+            </div>
+          </Transition>
         </div>
       </div>
     </section>
@@ -554,7 +558,9 @@ function compareByName(left: MangaItem, right: MangaItem) {
   cursor: pointer;
   font-size: 12px;
   font-weight: 700;
-  transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
+  transform: translate3d(0, 0, 0);
+  transition: border-color 180ms ease, color 180ms ease, background 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
 }
 
 .sort-button span {
@@ -573,6 +579,26 @@ function compareByName(left: MangaItem, right: MangaItem) {
   outline: none;
 }
 
+.sort-button:active {
+  transform: translate3d(0, 1px, 0) scale(0.992);
+}
+
+.sort-button-icon,
+.sort-button-chevron,
+.filter-button-icon {
+  flex-shrink: 0;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease;
+  will-change: transform;
+}
+
+.sort-button.active .sort-button-icon {
+  transform: translate3d(0, -1px, 0);
+}
+
+.sort-button.active .sort-button-chevron {
+  transform: rotate(180deg);
+}
+
 .sort-popover {
   position: absolute;
   left: 0;
@@ -581,6 +607,8 @@ function compareByName(left: MangaItem, right: MangaItem) {
   width: min(238px, calc(100vw - 40px));
   padding: 8px;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
+  transform-origin: 28px top;
+  will-change: opacity, transform;
 }
 
 .sort-popover::before {
@@ -610,6 +638,8 @@ function compareByName(left: MangaItem, right: MangaItem) {
   background: transparent;
   cursor: pointer;
   text-align: left;
+  transform: translate3d(0, 0, 0);
+  transition: color 160ms ease, background 160ms ease, transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .sort-option:hover,
@@ -622,6 +652,10 @@ function compareByName(left: MangaItem, right: MangaItem) {
 .sort-option.active {
   color: var(--color-accent-bright);
   background: rgba(184, 155, 114, 0.12);
+}
+
+.sort-option:active {
+  transform: translate3d(2px, 0, 0);
 }
 
 .filter-control {
@@ -639,6 +673,9 @@ function compareByName(left: MangaItem, right: MangaItem) {
   color: rgba(209, 197, 183, 0.72);
   background: rgba(21, 21, 21, 0.72);
   cursor: pointer;
+  transform: translate3d(0, 0, 0);
+  transition: border-color 180ms ease, color 180ms ease, background 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
 }
 
 .filter-button.active {
@@ -654,6 +691,14 @@ function compareByName(left: MangaItem, right: MangaItem) {
   outline: none;
 }
 
+.filter-button:active {
+  transform: translate3d(0, 1px, 0) scale(0.992);
+}
+
+.filter-button.active .filter-button-icon {
+  transform: translate3d(0, -1px, 0);
+}
+
 .filter-popover {
   position: absolute;
   right: 0;
@@ -662,6 +707,8 @@ function compareByName(left: MangaItem, right: MangaItem) {
   width: 176px;
   padding: 8px;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
+  transform-origin: calc(100% - 24px) top;
+  will-change: opacity, transform;
 }
 
 .filter-popover::before {
@@ -688,11 +735,17 @@ function compareByName(left: MangaItem, right: MangaItem) {
   padding: 0 10px;
   color: rgba(209, 197, 183, 0.74);
   cursor: pointer;
+  transform: translate3d(0, 0, 0);
+  transition: background 160ms ease, transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .filter-option:hover,
 .filter-option:focus-within {
   background: rgba(184, 155, 114, 0.08);
+}
+
+.filter-option:active {
+  transform: translate3d(2px, 0, 0);
 }
 
 .filter-option input {
@@ -703,6 +756,17 @@ function compareByName(left: MangaItem, right: MangaItem) {
 
 .filter-option svg {
   color: var(--color-accent-bright);
+}
+
+.library-popover-enter-active,
+.library-popover-leave-active {
+  transition: opacity 170ms ease, transform 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.library-popover-enter-from,
+.library-popover-leave-to {
+  opacity: 0;
+  transform: translate3d(0, -6px, 0) scale(0.985);
 }
 
 .library-tabs {
@@ -838,6 +902,29 @@ function compareByName(left: MangaItem, right: MangaItem) {
 
   .filter-button span {
     display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sort-button,
+  .sort-button-icon,
+  .sort-button-chevron,
+  .sort-option,
+  .filter-button,
+  .filter-button-icon,
+  .filter-option,
+  .library-popover-enter-active,
+  .library-popover-leave-active {
+    transition: none;
+  }
+
+  .sort-button:active,
+  .sort-option:active,
+  .filter-button:active,
+  .filter-option:active,
+  .sort-button.active .sort-button-icon,
+  .filter-button.active .filter-button-icon {
+    transform: none;
   }
 }
 </style>
