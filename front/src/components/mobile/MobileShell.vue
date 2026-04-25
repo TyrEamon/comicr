@@ -36,7 +36,7 @@
           class="global-import-status-close"
           type="button"
           aria-label="关闭导入状态"
-          @click="importTask.clear()"
+          @click="clearImportStatus"
         >
           <X :size="17" />
         </button>
@@ -70,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { AlertCircle, BookOpen, CheckCircle2, Cloud, Compass, Download, LoaderCircle, Settings, X } from 'lucide-vue-next'
 import { useImportTaskStore } from '@/stores/importTaskStore'
@@ -92,6 +92,9 @@ const importStatusIcon = computed(() => {
   return LoaderCircle
 })
 const title = computed(() => String(route.meta.title ?? '书库'))
+const IMPORT_STATUS_COMPLETE_HIDE_MS = 8_000
+const IMPORT_STATUS_FAILED_HIDE_MS = 12_000
+let importStatusAutoHideTimer: number | undefined
 
 const menuItems = [
   { path: '/', label: '书库', icon: BookOpen },
@@ -104,6 +107,14 @@ const menuItems = [
 watch(() => route.fullPath, () => {
   menuOpen.value = false
   closeSearch()
+})
+
+watch(() => [importTask.status, importTask.updatedAt], () => {
+  scheduleImportStatusAutoHide()
+})
+
+onBeforeUnmount(() => {
+  clearImportStatusAutoHideTimer()
 })
 
 async function handleSearch() {
@@ -135,6 +146,29 @@ function finishSearchInput() {
 
 function emitSearch() {
   window.dispatchEvent(new CustomEvent('app-search', { detail: searchQuery.value }))
+}
+
+function clearImportStatusAutoHideTimer() {
+  if (importStatusAutoHideTimer === undefined) return
+  window.clearTimeout(importStatusAutoHideTimer)
+  importStatusAutoHideTimer = undefined
+}
+
+function scheduleImportStatusAutoHide() {
+  clearImportStatusAutoHideTimer()
+  if (!importTask.canClear) return
+
+  const delay = importTask.status === 'failed'
+    ? IMPORT_STATUS_FAILED_HIDE_MS
+    : IMPORT_STATUS_COMPLETE_HIDE_MS
+  importStatusAutoHideTimer = window.setTimeout(() => {
+    if (importTask.canClear) importTask.clear()
+  }, delay)
+}
+
+function clearImportStatus() {
+  clearImportStatusAutoHideTimer()
+  importTask.clear()
 }
 </script>
 

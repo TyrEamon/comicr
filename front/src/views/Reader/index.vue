@@ -27,7 +27,7 @@
             <article
               v-if="currentImage?.kind === 'text'"
               class="reader-text-page gallery-text-page"
-              :class="{ 'rounded-media': shouldRoundReaderMedia }"
+              :class="{ 'rounded-media': shouldRoundReaderMedia, 'standalone-image-page': currentTextPageIsStandaloneImage }"
               :style="textPageStyle"
               @click.stop="handleGalleryTap"
             >
@@ -473,6 +473,7 @@ const GALLERY_TEXT_PAGE_GAP = 36
 const mangaId = computed(() => String(route.params.id))
 const isCloudReader = computed(() => cloudService.isWebDavReaderId(mangaId.value))
 const currentImage = computed(() => images.value[currentIndex.value] ?? null)
+const currentTextPageIsStandaloneImage = computed(() => isStandaloneTextImagePage(currentImage.value))
 const isContinuousMode = computed(() => readerMode.value === 'continuous')
 const lastImageIndex = computed(() => Math.max(0, images.value.length - 1))
 const hasTextPages = computed(() => images.value.some((image) => image.kind === 'text'))
@@ -627,6 +628,19 @@ function formatReaderClock(date = new Date()) {
   const hours = String(date.getHours()).padStart(2, '0')
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${hours}:${minutes}`
+}
+
+function isStandaloneTextImagePage(image: ImageAsset | null) {
+  if (image?.kind !== 'text' || !image.html) return false
+
+  const parsed = new DOMParser().parseFromString(image.html, 'text/html')
+  const imageCount = parsed.body.querySelectorAll('img').length
+  if (imageCount === 0) return false
+
+  const textProbe = parsed.body.cloneNode(true) as HTMLElement
+  textProbe.querySelectorAll('img, svg').forEach((node) => node.remove())
+  const remainingText = textProbe.textContent?.replace(/\s+/g, '').trim() || ''
+  return remainingText.length <= 8
 }
 
 function updateReaderClock() {
@@ -1625,7 +1639,7 @@ function handleContinuousScroll() {
   box-sizing: border-box;
   height: 100dvh;
   overflow: hidden;
-  padding: max(0px, calc(var(--safe-top) - 34px)) 24px calc(var(--safe-bottom) + 34px);
+  padding: calc(var(--safe-top) + 44px) 24px calc(var(--safe-bottom) + 34px);
 }
 
 .gallery-text-viewport {
@@ -1634,12 +1648,29 @@ function handleContinuousScroll() {
   overflow: hidden;
 }
 
+.gallery-text-page.standalone-image-page .gallery-text-viewport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .reader-text-flow {
   width: var(--reader-text-page-width, 100%);
   height: 100%;
   column-fill: auto;
   column-gap: var(--reader-text-page-gap, 36px);
   column-width: var(--reader-text-page-width, 100%);
+}
+
+.gallery-text-page.standalone-image-page .reader-text-flow {
+  display: flex;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  align-items: center;
+  justify-content: center;
+  column-gap: 0;
+  column-width: auto;
 }
 
 .gallery-stage.page-turning .reader-text-flow {
@@ -1702,6 +1733,22 @@ function handleContinuousScroll() {
   height: auto;
   margin: 24px auto;
   border-radius: 0;
+}
+
+.gallery-text-page.standalone-image-page :deep(p),
+.gallery-text-page.standalone-image-page :deep(figure),
+.gallery-text-page.standalone-image-page :deep(div),
+.gallery-text-page.standalone-image-page :deep(section) {
+  margin: 0;
+  text-indent: 0;
+}
+
+.gallery-text-page.standalone-image-page :deep(img) {
+  width: auto;
+  max-width: 100%;
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 126px);
+  margin: 0 auto;
+  object-fit: contain;
 }
 
 .reader-text-page.rounded-media :deep(img) {
