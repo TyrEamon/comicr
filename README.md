@@ -1,5 +1,7 @@
 # Comicr / 漫画云读
 
+### PC端：https://github.com/TyrEamon/ImageMaster
+
 一个面向手机端的漫画与轻小说阅读应用。项目使用 Vue 3 + Vite 构建前端，通过 Capacitor 打包 Android，并带有本地导入、WebDAV 云盘阅读、站点下载、EPUB/TXT 小说阅读等能力。
 
 ## 功能概览
