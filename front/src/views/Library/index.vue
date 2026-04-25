@@ -150,7 +150,7 @@ const tabItems: Array<{ id: LibraryTab, label: string }> = [
 ]
 
 const sortOptions: Array<{ id: LibrarySortMode, label: string }> = [
-  { id: 'name', label: '名称排序' },
+  { id: 'name', label: '默认排序' },
   { id: 'addedAt', label: '加入时间' },
   { id: 'recent', label: '最近阅读' },
 ]
@@ -182,7 +182,7 @@ const pointerStartY = ref(0)
 const pointerTracking = ref(false)
 
 const activeAllFilterCount = computed(() => allFilterOptions.filter((option) => allFilters.value[option.id]).length)
-const sortModeLabel = computed(() => sortOptions.find((option) => option.id === sortMode.value)?.label ?? '名称排序')
+const sortModeLabel = computed(() => sortOptions.find((option) => option.id === sortMode.value)?.label ?? '默认排序')
 
 const visibleMangas = computed(() => {
   const query = searchQuery.value.trim()

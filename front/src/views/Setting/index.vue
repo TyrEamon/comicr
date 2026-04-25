@@ -21,19 +21,19 @@
       />
 
       <div class="import-actions">
-        <button class="ghost-button import-button" type="button" :disabled="busy" @click="handleArchiveButton">
+        <button class="ghost-button import-button" type="button" :disabled="operationBusy" @click="handleArchiveButton">
           <Archive :size="18" />
           压缩包
         </button>
-        <button class="primary-button import-button" type="button" :disabled="busy" @click="handleFolderImport">
+        <button class="primary-button import-button" type="button" :disabled="operationBusy" @click="handleFolderImport">
           <FolderOpen :size="18" />
           授权目录
         </button>
-        <button class="ghost-button import-button" type="button" :disabled="busy || authorizedFolderRoots.length === 0" @click="handleRefreshAuthorizedFolders">
+        <button class="ghost-button import-button" type="button" :disabled="operationBusy || authorizedFolderRoots.length === 0" @click="handleRefreshAuthorizedFolders">
           <RotateCcw :size="18" />
           刷新书库
         </button>
-        <button class="ghost-button import-button" type="button" :disabled="busy" @click="imageInput?.click()">
+        <button class="ghost-button import-button" type="button" :disabled="operationBusy" @click="imageInput?.click()">
           <Images :size="18" />
           图片/文件
         </button>
@@ -117,15 +117,15 @@
       <p v-if="proxyTestLatencyMs !== null" class="proxy-help">上次测试延迟：{{ proxyTestLatencyMs }} ms</p>
 
       <div class="cache-actions">
-        <button class="ghost-button import-button" type="button" :disabled="busy" @click="saveProxySettings">
+        <button class="ghost-button import-button" type="button" :disabled="operationBusy" @click="saveProxySettings">
           <HardDrive :size="18" />
           保存代理
         </button>
-        <button class="ghost-button import-button" type="button" :disabled="busy" @click="testProxySettings">
+        <button class="ghost-button import-button" type="button" :disabled="operationBusy" @click="testProxySettings">
           <Wifi :size="18" />
           测试连接
         </button>
-        <button class="ghost-button import-button danger-action" type="button" :disabled="busy || !proxyInput.trim()" @click="clearProxySettings">
+        <button class="ghost-button import-button danger-action" type="button" :disabled="operationBusy || !proxyInput.trim()" @click="clearProxySettings">
           <Trash2 :size="18" />
           关闭代理
         </button>
@@ -142,11 +142,11 @@
       </div>
 
       <div class="cache-actions">
-        <button class="ghost-button import-button" type="button" :disabled="busy || !downloadTargetAvailable" @click="pickDownloadTarget">
+        <button class="ghost-button import-button" type="button" :disabled="operationBusy || !downloadTargetAvailable" @click="pickDownloadTarget">
           <FolderOpen :size="18" />
           选择目录
         </button>
-        <button class="ghost-button import-button" type="button" :disabled="busy || !hasCustomDownloadTarget" @click="resetDownloadTarget">
+        <button class="ghost-button import-button" type="button" :disabled="operationBusy || !hasCustomDownloadTarget" @click="resetDownloadTarget">
           <RotateCcw :size="18" />
           恢复默认
         </button>
@@ -279,11 +279,11 @@
       </label>
 
       <div class="cache-actions">
-        <button class="ghost-button import-button" type="button" :disabled="busy" @click="saveCacheLimit">
+        <button class="ghost-button import-button" type="button" :disabled="operationBusy" @click="saveCacheLimit">
           <HardDrive :size="18" />
           保存上限
         </button>
-        <button class="ghost-button import-button danger-action" type="button" :disabled="busy || cacheStats.usedBytes === 0" @click="clearCloudCache">
+        <button class="ghost-button import-button danger-action" type="button" :disabled="operationBusy || cacheStats.usedBytes === 0" @click="clearCloudCache">
           <Trash2 :size="18" />
           清理缓存
         </button>
@@ -314,11 +314,13 @@ import { libraryService } from '@/services/libraryService'
 import { localFolderService } from '@/services/localFolderService'
 import { nativeHttpService } from '@/services/nativeHttpService'
 import { networkProxySettings } from '@/services/networkProxySettings'
+import { useImportTaskStore, type ImportTaskManga } from '@/stores/importTaskStore'
 import { useLibraryStore } from '@/stores/libraryStore'
 import { Archive, ChevronDown, FolderOpen, HardDrive, Images, RotateCcw, Trash2, Wifi } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 
 const library = useLibraryStore()
+const importTask = useImportTaskStore()
 const archiveInput = ref<HTMLInputElement | null>(null)
 const imageInput = ref<HTMLInputElement | null>(null)
 const importTitle = ref('')
@@ -354,14 +356,45 @@ const proxySummary = computed(() => {
   proxySettingsVersion.value
   return networkProxySettings.describe()
 })
+const operationBusy = computed(() => busy.value || importTask.running)
 
 onMounted(() => {
   void library.ensureLoaded()
   void refreshCloudCacheStats()
+  restoreImportStatus()
 })
 
 function requestedTitle() {
   return importTitle.value.trim() || undefined
+}
+
+function restoreImportStatus() {
+  if (!importTask.visible) return
+  message.value = importTask.message
+  importedManga.value = importTask.importedManga
+}
+
+function startImportMessage(nextMessage: string) {
+  message.value = nextMessage
+  importedManga.value = null
+  importTask.start(nextMessage)
+}
+
+function updateImportMessage(nextMessage: string) {
+  message.value = nextMessage
+  importTask.progress(nextMessage)
+}
+
+function completeImportMessage(nextMessage: string, manga: ImportTaskManga | null = null) {
+  message.value = nextMessage
+  importedManga.value = manga
+  importTask.complete(nextMessage, manga)
+}
+
+function failImportMessage(nextMessage: string) {
+  message.value = nextMessage
+  importedManga.value = null
+  importTask.fail(nextMessage)
 }
 
 function isEpubImportFile(file: File) {
@@ -382,8 +415,7 @@ function handleArchiveButton() {
 
 async function handleNativeArchiveImport() {
   busy.value = true
-  importedManga.value = null
-  message.value = '正在申请压缩包授权...'
+  startImportMessage('正在申请压缩包授权...')
   try {
     const result = await archiveService.pickArchives()
     const archives = result.archives
@@ -396,7 +428,7 @@ async function handleNativeArchiveImport() {
 
     for (const [index, archive] of archives.entries()) {
       const title = archives.length === 1 ? manualTitle || archive.title : archive.title
-      message.value = `正在保存压缩包索引 ${index + 1}/${archives.length}：${title}`
+      updateImportMessage(`正在保存压缩包索引 ${index + 1}/${archives.length}：${title}`)
       if (archive.partial) partialArchives += 1
       const manga = await library.importArchiveRefs(
         title,
@@ -413,15 +445,16 @@ async function handleNativeArchiveImport() {
     }
 
     await library.refresh()
-    importedManga.value = archives.length === 1 ? lastManga : null
+    const nextImportedManga = archives.length === 1 ? lastManga : null
     const skipped = result.errors?.length ? `，跳过 ${result.errors.length} 个无效压缩包` : ''
     const partial = partialArchives > 0 ? `，其中 ${partialArchives} 个压缩包未下载完整，只导入可读取页面` : ''
-    message.value = archives.length === 1 && lastManga
+    const nextMessage = archives.length === 1 && lastManga
       ? `已添加 ${lastManga.title}（${totalImages} 页，不解压不复制）${skipped}${partial}`
       : `已添加 ${archives.length} 本压缩包漫画，共 ${totalImages} 页，不解压不复制${skipped}${partial}`
+    completeImportMessage(nextMessage, nextImportedManga)
     importTitle.value = ''
   } catch (error) {
-    message.value = archiveErrorMessage(error, '压缩包索引')
+    failImportMessage(archiveErrorMessage(error, '压缩包索引'))
   } finally {
     busy.value = false
   }
@@ -433,8 +466,7 @@ async function handleArchiveImport(event: Event) {
   if (files.length === 0) return
 
   busy.value = true
-  importedManga.value = null
-  message.value = '正在导入压缩包...'
+  startImportMessage('正在导入压缩包...')
   try {
     const manualTitle = requestedTitle()
     let totalImages = 0
@@ -442,20 +474,21 @@ async function handleArchiveImport(event: Event) {
 
     for (const [index, file] of files.entries()) {
       const title = files.length === 1 ? manualTitle : undefined
-      message.value = `正在导入压缩包 ${index + 1}/${files.length}：${file.name}`
+      updateImportMessage(`正在导入压缩包 ${index + 1}/${files.length}：${file.name}`)
       const manga = await library.importArchive(file, title, false)
       totalImages += manga.imageCount
       lastManga = { id: manga.id, title: manga.title }
     }
 
     await library.refresh()
-    importedManga.value = files.length === 1 ? lastManga : null
-    message.value = files.length === 1 && lastManga
+    const nextImportedManga = files.length === 1 ? lastManga : null
+    const nextMessage = files.length === 1 && lastManga
       ? `已导入 ${lastManga.title}（${totalImages} 页）`
       : `已导入 ${files.length} 个压缩包，共 ${totalImages} 页`
+    completeImportMessage(nextMessage, nextImportedManga)
     importTitle.value = ''
   } catch (error) {
-    message.value = archiveErrorMessage(error, '导入压缩包')
+    failImportMessage(archiveErrorMessage(error, '导入压缩包'))
   } finally {
     busy.value = false
     input.value = ''
@@ -471,8 +504,7 @@ async function handleImageFilesImport(event: Event, label: string) {
   const imageFiles = files.filter((file) => !isEpubImportFile(file) && !isTextImportFile(file))
 
   busy.value = true
-  importedManga.value = null
-  message.value = `正在导入${label}...`
+  startImportMessage(`正在导入${label}...`)
   try {
     if (epubFiles.length === 0 && textFiles.length === 0 && imageFiles.length === 0) {
       throw new Error('请选择图片、EPUB 或 TXT 文件')
@@ -485,7 +517,7 @@ async function handleImageFilesImport(event: Event, label: string) {
     let lastManga: { id: string; title: string } | null = null
 
     if (imageFiles.length > 0) {
-      message.value = '正在导入图片...'
+      updateImportMessage('正在导入图片...')
       const manga = await library.importImageFiles(imageFiles, importGroups === 1 ? manualTitle : undefined)
       totalImages += manga.imageCount
       count += 1
@@ -494,7 +526,7 @@ async function handleImageFilesImport(event: Event, label: string) {
 
     for (const [index, file] of epubFiles.entries()) {
       const title = importGroups === 1 ? manualTitle : undefined
-      message.value = `正在解析 EPUB ${index + 1}/${epubFiles.length}：${file.name}`
+      updateImportMessage(`正在解析 EPUB ${index + 1}/${epubFiles.length}：${file.name}`)
       const manga = await library.importEpubFile(file, title, false)
       totalImages += manga.imageCount
       count += 1
@@ -503,7 +535,7 @@ async function handleImageFilesImport(event: Event, label: string) {
 
     for (const [index, file] of textFiles.entries()) {
       const title = importGroups === 1 ? manualTitle : undefined
-      message.value = `正在解析 TXT ${index + 1}/${textFiles.length}：${file.name}`
+      updateImportMessage(`正在解析 TXT ${index + 1}/${textFiles.length}：${file.name}`)
       const manga = await library.importTextFile(file, title, false)
       totalImages += manga.imageCount
       count += 1
@@ -511,13 +543,14 @@ async function handleImageFilesImport(event: Event, label: string) {
     }
 
     if (epubFiles.length > 0 || textFiles.length > 0) await library.refresh()
-    importedManga.value = count === 1 ? lastManga : null
-    message.value = count === 1 && lastManga
+    const nextImportedManga = count === 1 ? lastManga : null
+    const nextMessage = count === 1 && lastManga
       ? `已导入 ${lastManga.title}（${totalImages} 页）`
       : `已导入 ${count} 本，共 ${totalImages} 页`
+    completeImportMessage(nextMessage, nextImportedManga)
     importTitle.value = ''
   } catch (error) {
-    message.value = error instanceof Error ? error.message : `${label}导入失败`
+    failImportMessage(error instanceof Error ? error.message : `${label}导入失败`)
   } finally {
     busy.value = false
     input.value = ''
@@ -526,23 +559,23 @@ async function handleImageFilesImport(event: Event, label: string) {
 
 async function handleFolderImport() {
   busy.value = true
-  importedManga.value = null
-  message.value = '正在申请文件夹授权...'
+  startImportMessage('正在申请文件夹授权...')
   try {
     const folders = await localFolderService.pickFolder((progress) => {
-      message.value = `正在建立索引 ${progress.current}/${progress.total}：${progress.title}`
+      updateImportMessage(`正在建立索引 ${progress.current}/${progress.total}：${progress.title}`)
     })
     const result = await importLocalLibraryItems(folders, requestedTitle())
 
     await library.refresh()
     authorizedFolderRoots.value = localFolderService.getAuthorizedRoots()
-    importedManga.value = folders.length === 1 ? result.lastManga : null
-    message.value = result.count === 1 && result.lastManga
+    const nextImportedManga = folders.length === 1 ? result.lastManga : null
+    const nextMessage = result.count === 1 && result.lastManga
       ? `已添加 ${result.lastManga.title}（${result.totalImages} 页，不复制原图）`
       : `已更新 ${result.count} 本漫画，共 ${result.totalImages} 页，不复制原图`
+    completeImportMessage(nextMessage, nextImportedManga)
     importTitle.value = ''
   } catch (error) {
-    message.value = error instanceof Error ? error.message : '文件夹导入失败'
+    failImportMessage(error instanceof Error ? error.message : '文件夹导入失败')
   } finally {
     busy.value = false
   }
@@ -550,22 +583,22 @@ async function handleFolderImport() {
 
 async function handleRefreshAuthorizedFolders() {
   busy.value = true
-  importedManga.value = null
-  message.value = '正在刷新已授权漫画库...'
+  startImportMessage('正在刷新已授权漫画库...')
   try {
     const folders = await localFolderService.scanAuthorizedFolders((progress) => {
-      message.value = `正在扫描授权目录 ${progress.current}/${progress.total}：${progress.title}`
+      updateImportMessage(`正在扫描授权目录 ${progress.current}/${progress.total}：${progress.title}`)
     })
     const result = await importLocalLibraryItems(folders)
 
     await library.refresh()
     authorizedFolderRoots.value = localFolderService.getAuthorizedRoots()
-    importedManga.value = result.count === 1 ? result.lastManga : null
-    message.value = result.count === 0
+    const nextImportedManga = result.count === 1 ? result.lastManga : null
+    const nextMessage = result.count === 0
       ? '已授权目录里没有识别到新漫画'
       : `已刷新 ${result.count} 本漫画，共 ${result.totalImages} 页`
+    completeImportMessage(nextMessage, nextImportedManga)
   } catch (error) {
-    message.value = error instanceof Error ? error.message : '刷新书库失败'
+    failImportMessage(error instanceof Error ? error.message : '刷新书库失败')
   } finally {
     busy.value = false
   }
@@ -589,7 +622,7 @@ async function importLocalLibraryItems(
       continue
     }
 
-    message.value = `正在保存索引 ${index + 1}/${folders.length}：${title}`
+    updateImportMessage(`正在保存索引 ${index + 1}/${folders.length}：${title}`)
 
     const manga = isReaderFile
       ? await importLocalReaderFile(folder, title, mangaId, localPath)
