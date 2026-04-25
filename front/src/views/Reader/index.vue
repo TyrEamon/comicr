@@ -28,13 +28,21 @@
               v-if="currentImage?.kind === 'text'"
               class="reader-text-page gallery-text-page"
               :style="textPageStyle"
-              @click.stop="toggleControls()"
-              v-html="currentImage.html"
-            />
+              @click.stop="handleGalleryTap"
+            >
+              <div ref="galleryTextViewport" class="gallery-text-viewport">
+                <div
+                  ref="galleryTextFlow"
+                  class="reader-text-flow"
+                  :style="galleryTextFlowStyle"
+                  v-html="currentImage.html"
+                />
+              </div>
+            </article>
             <img
               v-else-if="currentImage?.src"
               class="reader-image"
-              :class="{ 'fit-width': fitMode === 'width' }"
+              :class="{ 'fit-width': fitMode === 'width', rounded: imageRoundedCorners }"
               :src="currentImage.src"
               :alt="currentImage.name"
               :style="imageStyle"
@@ -70,7 +78,7 @@
           <img
             v-else-if="image.src"
             class="reader-image continuous-image"
-            :class="{ 'fit-width': fitMode === 'width' }"
+            :class="{ 'fit-width': fitMode === 'width', rounded: imageRoundedCorners }"
             :src="image.src"
             :alt="image.name"
             :style="imageStyle"
@@ -78,6 +86,20 @@
             @error="handleImageError(index)"
           />
           <div v-else class="reader-image-placeholder continuous-placeholder">正在加载第 {{ index + 1 }} 页...</div>
+        </div>
+      </div>
+
+      <div v-if="readerMode === 'gallery' && !controlsVisible" class="reader-page-status" aria-hidden="true">
+        <div class="reader-device-status">
+          <span>{{ readerClockLabel }}</span>
+          <span v-if="readerBatteryLevel !== null" class="reader-battery" :class="{ charging: readerBatteryCharging }">
+            <span class="reader-battery-icon" :style="readerBatteryStyle"><i /></span>
+            <span>{{ readerBatteryLevel }}%</span>
+          </span>
+        </div>
+        <div class="reader-chapter-status">
+          <span v-if="readerChapterStatusTitle" class="reader-status-chapter">{{ readerChapterStatusTitle }}</span>
+          <span class="reader-status-page">{{ readerChapterPageLabel }}</span>
         </div>
       </div>
 
@@ -105,17 +127,17 @@
             </button>
 
             <div class="reader-progress">
-              <span class="reader-progress-value">{{ currentIndex + 1 }}</span>
+              <span class="reader-progress-value">{{ readerProgressCurrentLabel }}</span>
               <input
-                :value="currentIndex"
+                :value="readerProgressValue"
                 type="range"
                 min="0"
-                :max="lastImageIndex"
+                :max="readerProgressMax"
                 step="1"
                 aria-label="阅读进度"
                 @input="handleProgressInput"
               />
-              <span class="reader-progress-value total">{{ images.length }}</span>
+              <span class="reader-progress-value total">{{ readerProgressTotalLabel }}</span>
             </div>
 
             <button class="reader-page-button" type="button" aria-label="跳到末尾" @click="jumpToEnd">
@@ -182,6 +204,14 @@
         </div>
       </Transition>
 
+      <article
+        v-if="readerMode === 'gallery' && hasTextPages"
+        ref="galleryTextMeasureRoot"
+        class="reader-text-page gallery-text-page reader-text-measure-root"
+        :style="textPageStyle"
+        aria-hidden="true"
+      />
+
       <Transition name="reader-sheet">
         <div v-if="chapterSheetVisible" class="reader-sheet-backdrop" @click.stop="closeChapterSheet()">
           <section
@@ -242,11 +272,11 @@
             <section class="reader-settings-section">
               <p class="drawer-section-label">阅读模式</p>
               <button class="reader-mode-option" :class="{ active: readerMode === 'gallery' && galleryDirection === 'right-next' }" type="button" @click="setGalleryMode('right-next')">
-                <strong>画廊（从右到左）</strong>
+                <strong>翻页（从右到左）</strong>
                 <span>右侧下一张，左滑下一张</span>
               </button>
               <button class="reader-mode-option" :class="{ active: readerMode === 'gallery' && galleryDirection === 'left-next' }" type="button" @click="setGalleryMode('left-next')">
-                <strong>画廊（从左到右）</strong>
+                <strong>翻页（从左到右）</strong>
                 <span>左侧下一张，右滑下一张</span>
               </button>
               <button class="reader-mode-option" :class="{ active: readerMode === 'continuous' }" type="button" @click="setReaderMode('continuous')">
@@ -260,7 +290,7 @@
               <button class="reader-toggle-option" type="button" :class="{ active: pageTurnAnimation }" @click="togglePageTurnAnimation">
                 <div>
                   <strong>翻页动画</strong>
-                  <span>画廊模式左右滑入滑出，连续模式不受影响</span>
+                  <span>翻页模式左右滑入滑出，连续模式不受影响</span>
                 </div>
                 <span class="reader-switch" :class="{ active: pageTurnAnimation }" aria-hidden="true">
                   <i />
@@ -334,6 +364,15 @@
                 <button class="setting-chip drawer-chip" :class="{ active: fitMode === 'contain' }" type="button" @click="setFitMode('contain')">适应屏幕</button>
                 <button class="setting-chip drawer-chip" :class="{ active: fitMode === 'width' }" type="button" @click="setFitMode('width')">适应宽度</button>
               </div>
+              <button class="reader-toggle-option" type="button" :class="{ active: imageRoundedCorners }" @click="toggleImageRoundedCorners">
+                <div>
+                  <strong>图片圆角</strong>
+                  <span>给图片页额外加柔和圆角，关闭后按原图边缘显示</span>
+                </div>
+                <span class="reader-switch" :class="{ active: imageRoundedCorners }" aria-hidden="true">
+                  <i />
+                </span>
+              </button>
             </section>
           </aside>
         </div>
@@ -348,6 +387,7 @@ import { cloudDownloadService } from '@/services/cloudDownloadService'
 import { downloadService } from '@/services/downloadService'
 import { libraryService } from '@/services/libraryService'
 import { readerService, readerTextPreferenceLimits, type ReaderFitMode, type ReaderGalleryDirection, type ReaderMode } from '@/services/readerService'
+import { readerSystemUiService } from '@/services/readerSystemUiService'
 import type { ImageAsset, MangaItem, ReaderChapter } from '@/services/types'
 import { ArrowLeft, Bookmark, Check, ChevronsLeft, ChevronsRight, Download as DownloadIcon, ListTree, PanelTop, RefreshCw, Settings, Sun, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -358,9 +398,11 @@ const route = useRoute()
 const router = useRouter()
 const preferences = readerService.getPreferences()
 type PageTurnDirection = 'next' | 'previous'
+type GalleryTextPageTarget = 'start' | 'end' | 'keep' | number
 interface PageNavigationOptions {
   animate?: boolean
   behavior?: ScrollBehavior
+  textPage?: Exclude<GalleryTextPageTarget, 'keep'>
 }
 interface ChapterSheetCloseOptions {
   syncHistory?: boolean
@@ -386,6 +428,7 @@ const readerMode = ref<ReaderMode>(preferences.mode)
 const fitMode = ref<ReaderFitMode>(preferences.fitMode)
 const galleryDirection = ref<ReaderGalleryDirection>(preferences.galleryDirection)
 const pageTurnAnimation = ref(preferences.pageTurnAnimation)
+const imageRoundedCorners = ref(preferences.imageRoundedCorners)
 const textFontSize = ref(preferences.textFontSize)
 const textLineHeight = ref(preferences.textLineHeight)
 const textIndentEm = ref(preferences.textIndentEm)
@@ -394,6 +437,13 @@ const pageTurnDirection = ref<PageTurnDirection>('next')
 const reducedMotion = ref(false)
 const continuousContainer = ref<HTMLElement | null>(null)
 const continuousFrames = ref<HTMLElement[]>([])
+const galleryTextViewport = ref<HTMLElement | null>(null)
+const galleryTextFlow = ref<HTMLElement | null>(null)
+const galleryTextMeasureRoot = ref<HTMLElement | null>(null)
+const galleryTextPageIndex = ref(0)
+const galleryTextPageCount = ref(1)
+const galleryTextPageWidth = ref(0)
+const galleryVirtualPageCounts = ref<number[]>([])
 const loadError = ref('')
 const touchStartX = ref(0)
 const touchStartY = ref(0)
@@ -401,12 +451,21 @@ const chapterSheetTouchStartY = ref(0)
 const chapterSheetTouchOffset = ref(0)
 const chapterSheetDragging = ref(false)
 const ignoreNextTap = ref(false)
+const readerClockLabel = ref('')
+const readerBatteryLevel = ref<number | null>(null)
+const readerBatteryCharging = ref(false)
 
 let hideTimer: number | undefined
+let readerClockTimer: number | undefined
+let readerBatteryTimer: number | undefined
 let scrollSyncFrame: number | undefined
 let lastTapAt = 0
 let reducedMotionQuery: MediaQueryList | undefined
 let chapterSheetHistoryActive = false
+let galleryTextMeasureFrame: number | undefined
+let galleryVirtualMeasureFrame: number | undefined
+let pendingGalleryTextPageTarget: Exclude<GalleryTextPageTarget, 'keep'> = 'start'
+const GALLERY_TEXT_PAGE_GAP = 36
 
 const mangaId = computed(() => String(route.params.id))
 const isCloudReader = computed(() => cloudService.isWebDavReaderId(mangaId.value))
@@ -422,6 +481,47 @@ const textPageStyle = computed(() => ({
   '--reader-text-indent': `${textIndentEm.value}em`,
   '--reader-text-paragraph-spacing': `${textParagraphSpacingEm.value}em`,
 }))
+const galleryTextFlowStyle = computed(() => ({
+  '--reader-text-page-width': `${Math.max(1, galleryTextPageWidth.value)}px`,
+  '--reader-text-page-gap': `${GALLERY_TEXT_PAGE_GAP}px`,
+  transform: `translate3d(-${galleryTextPageIndex.value * (galleryTextPageWidth.value + GALLERY_TEXT_PAGE_GAP)}px, 0, 0)`,
+}))
+const isGalleryPagedProgress = computed(() => readerMode.value === 'gallery' && hasTextPages.value)
+const galleryNormalizedPageCounts = computed(() => (
+  images.value.map((image, index) => {
+    if (image.kind !== 'text') return 1
+    return Math.max(
+      1,
+      galleryVirtualPageCounts.value[index]
+        ?? (index === currentIndex.value ? galleryTextPageCount.value : 1),
+    )
+  })
+))
+const galleryVirtualTotalPages = computed(() => (
+  Math.max(1, galleryNormalizedPageCounts.value.reduce((total, count) => total + count, 0))
+))
+const galleryVirtualCurrentPage = computed(() => {
+  const beforeCurrent = galleryNormalizedPageCounts.value
+    .slice(0, currentIndex.value)
+    .reduce((total, count) => total + count, 0)
+  const currentPageCount = galleryNormalizedPageCounts.value[currentIndex.value] ?? 1
+  const currentOffset = currentImage.value?.kind === 'text'
+    ? Math.min(galleryTextPageIndex.value, currentPageCount - 1)
+    : 0
+  return Math.min(galleryVirtualTotalPages.value, beforeCurrent + currentOffset + 1)
+})
+const readerProgressValue = computed(() => (
+  isGalleryPagedProgress.value ? galleryVirtualCurrentPage.value - 1 : currentIndex.value
+))
+const readerProgressMax = computed(() => (
+  isGalleryPagedProgress.value ? galleryVirtualTotalPages.value - 1 : lastImageIndex.value
+))
+const readerProgressCurrentLabel = computed(() => (
+  isGalleryPagedProgress.value ? galleryVirtualCurrentPage.value : currentIndex.value + 1
+))
+const readerProgressTotalLabel = computed(() => (
+  isGalleryPagedProgress.value ? galleryVirtualTotalPages.value : images.value.length
+))
 const galleryPageTransitionEnabled = computed(() => pageTurnAnimation.value && !reducedMotion.value && readerMode.value === 'gallery')
 const galleryTransitionName = computed(() => galleryPageTransitionEnabled.value ? `reader-page-slide-${pageTurnDirection.value}` : '')
 const chapterSheetStyle = computed(() => (
@@ -457,6 +557,47 @@ const readerChapters = computed<ReaderChapter[]>(() => {
   return chapters.sort((left, right) => left.pageIndex - right.pageIndex)
 })
 const hasChapterList = computed(() => readerChapters.value.length > 0)
+const readerChapterPageStatus = computed(() => {
+  const imageCount = images.value.length
+  if (imageCount === 0) return { current: 0, total: 0 }
+
+  const chapters = readerChapters.value
+  const chapter = currentChapter.value
+  let startIndex = 0
+  let endIndex = imageCount - 1
+
+  if (chapter) {
+    startIndex = Math.min(imageCount - 1, Math.max(0, chapter.pageIndex))
+    const chapterListIndex = chapters.findIndex((item) => item.id === chapter.id)
+    const nextChapter = chapterListIndex >= 0 ? chapters[chapterListIndex + 1] : undefined
+    endIndex = Math.max(startIndex, Math.min(imageCount - 1, (nextChapter?.pageIndex ?? imageCount) - 1))
+  }
+
+  const pageCountAt = (index: number) => Math.max(1, galleryNormalizedPageCounts.value[index] ?? 1)
+  const total = Math.max(
+    1,
+    galleryNormalizedPageCounts.value
+      .slice(startIndex, endIndex + 1)
+      .reduce((sum, count) => sum + Math.max(1, count), 0),
+  )
+  const beforeCurrent = galleryNormalizedPageCounts.value
+    .slice(startIndex, currentIndex.value)
+    .reduce((sum, count) => sum + Math.max(1, count), 0)
+  const currentPageCount = pageCountAt(currentIndex.value)
+  const currentOffset = currentImage.value?.kind === 'text'
+    ? Math.min(galleryTextPageIndex.value, currentPageCount - 1)
+    : 0
+
+  return {
+    current: Math.min(total, Math.max(1, beforeCurrent + currentOffset + 1)),
+    total,
+  }
+})
+const readerChapterStatusTitle = computed(() => currentChapter.value?.title?.trim() || manga.value?.title || '')
+const readerChapterPageLabel = computed(() => `${readerChapterPageStatus.value.current} / ${readerChapterPageStatus.value.total}`)
+const readerBatteryStyle = computed(() => ({
+  '--reader-battery-fill': `${Math.round(((readerBatteryLevel.value ?? 0) / 100) * 14)}px`,
+}))
 const currentChapter = computed(() => {
   let matched: ReaderChapter | null = null
   for (const chapter of readerChapters.value) {
@@ -476,6 +617,33 @@ const cloudDownloadButtonLabel = computed(() => {
   if (cloudDownloadQueued.value) return '当前漫画已在下载队列'
   return '下载当前漫画'
 })
+
+function formatReaderClock(date = new Date()) {
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+function updateReaderClock() {
+  readerClockLabel.value = formatReaderClock()
+}
+
+async function updateReaderDeviceStatus() {
+  const status = await readerSystemUiService.getDeviceStatus()
+  if (typeof status.batteryLevel === 'number' && Number.isFinite(status.batteryLevel)) {
+    readerBatteryLevel.value = Math.max(0, Math.min(100, Math.round(status.batteryLevel)))
+  }
+  readerBatteryCharging.value = Boolean(status.isCharging)
+}
+
+function startReaderStatusBar() {
+  updateReaderClock()
+  void updateReaderDeviceStatus()
+  readerClockTimer = window.setInterval(updateReaderClock, 30_000)
+  readerBatteryTimer = window.setInterval(() => {
+    void updateReaderDeviceStatus()
+  }, 60_000)
+}
 
 function syncReducedMotion(event?: MediaQueryListEvent) {
   reducedMotion.value = event?.matches ?? Boolean(reducedMotionQuery?.matches)
@@ -498,12 +666,20 @@ function handleReaderPopState() {
   closeChapterSheet({ syncHistory: false })
 }
 
+function handleReaderResize() {
+  scheduleGalleryTextPagination()
+  scheduleGalleryVirtualPagination()
+}
+
 onMounted(async () => {
+  void readerSystemUiService.enterImmersive()
+  startReaderStatusBar()
   reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
   syncReducedMotion()
   reducedMotionQuery.addEventListener('change', syncReducedMotion)
   window.addEventListener('keydown', handleReaderKeydown)
   window.addEventListener('popstate', handleReaderPopState)
+  window.addEventListener('resize', handleReaderResize)
 
   loading.value = true
   loadError.value = ''
@@ -551,17 +727,30 @@ onMounted(async () => {
 
   if (isContinuousMode.value) {
     await scrollToCurrentIndex('auto')
+  } else {
+    scheduleGalleryTextPagination('start')
+    scheduleGalleryVirtualPagination()
   }
 
   scheduleHide()
 })
 
 onUnmounted(() => {
+  void readerSystemUiService.exitImmersive()
   window.clearTimeout(hideTimer)
+  window.clearInterval(readerClockTimer)
+  window.clearInterval(readerBatteryTimer)
   reducedMotionQuery?.removeEventListener('change', syncReducedMotion)
   window.removeEventListener('keydown', handleReaderKeydown)
   window.removeEventListener('popstate', handleReaderPopState)
+  window.removeEventListener('resize', handleReaderResize)
   chapterSheetHistoryActive = false
+  if (galleryTextMeasureFrame) {
+    window.cancelAnimationFrame(galleryTextMeasureFrame)
+  }
+  if (galleryVirtualMeasureFrame) {
+    window.cancelAnimationFrame(galleryVirtualMeasureFrame)
+  }
   if (scrollSyncFrame) {
     window.cancelAnimationFrame(scrollSyncFrame)
   }
@@ -583,12 +772,17 @@ onUnmounted(() => {
 watch(currentIndex, (value) => {
   libraryService.saveProgress(mangaId.value, value, images.value.length)
   void ensureImagesAround(value).then(() => pruneLoadedLocalImages(value))
+  scheduleGalleryTextPagination(pendingGalleryTextPageTarget)
+  pendingGalleryTextPageTarget = 'start'
 })
 
 watch(readerMode, async (mode) => {
   readerService.updatePreferences({ mode })
   if (mode === 'continuous') {
     await scrollToCurrentIndex('auto')
+  } else {
+    scheduleGalleryTextPagination('start')
+    scheduleGalleryVirtualPagination()
   }
 })
 
@@ -607,6 +801,10 @@ watch(pageTurnAnimation, (enabled) => {
   readerService.updatePreferences({ pageTurnAnimation: enabled })
 })
 
+watch(imageRoundedCorners, (enabled) => {
+  readerService.updatePreferences({ imageRoundedCorners: enabled })
+})
+
 watch([textFontSize, textLineHeight, textIndentEm, textParagraphSpacingEm], ([fontSize, lineHeight, indentEm, paragraphSpacingEm]) => {
   readerService.updatePreferences({
     textFontSize: fontSize,
@@ -614,6 +812,8 @@ watch([textFontSize, textLineHeight, textIndentEm, textParagraphSpacingEm], ([fo
     textIndentEm: indentEm,
     textParagraphSpacingEm: paragraphSpacingEm,
   })
+  scheduleGalleryTextPagination()
+  scheduleGalleryVirtualPagination()
 })
 
 function toggleControls(skipDoubleTap = false) {
@@ -647,20 +847,153 @@ function scheduleHide() {
   }, 3200)
 }
 
+function isGalleryTextPage() {
+  return readerMode.value === 'gallery' && currentImage.value?.kind === 'text'
+}
+
+function scheduleGalleryTextPagination(target: GalleryTextPageTarget = 'keep') {
+  if (galleryTextMeasureFrame) {
+    window.cancelAnimationFrame(galleryTextMeasureFrame)
+  }
+
+  galleryTextMeasureFrame = window.requestAnimationFrame(() => {
+    galleryTextMeasureFrame = undefined
+    void syncGalleryTextPagination(target)
+  })
+}
+
+function setGalleryVirtualPageCount(index: number, count: number) {
+  if (index < 0 || index >= images.value.length) return
+  const nextCounts = [...galleryVirtualPageCounts.value]
+  nextCounts[index] = Math.max(1, count)
+  galleryVirtualPageCounts.value = nextCounts
+}
+
+function galleryTextMetrics(element: HTMLElement) {
+  const style = window.getComputedStyle(element)
+  const horizontalPadding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+  const verticalPadding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+  return {
+    width: Math.max(1, Math.floor(element.clientWidth - horizontalPadding)),
+    height: Math.max(1, Math.floor(element.clientHeight - verticalPadding)),
+  }
+}
+
+function measureGalleryTextHtml(html: string, width: number, height: number) {
+  const root = galleryTextMeasureRoot.value
+  if (!root) return 1
+
+  const flow = document.createElement('div')
+  flow.style.width = `${width}px`
+  flow.style.height = `${height}px`
+  flow.style.columnFill = 'auto'
+  flow.style.columnGap = `${GALLERY_TEXT_PAGE_GAP}px`
+  flow.style.columnWidth = `${width}px`
+  flow.innerHTML = html
+
+  root.replaceChildren(flow)
+  const pageStride = width + GALLERY_TEXT_PAGE_GAP
+  return Math.max(1, Math.ceil((flow.scrollWidth + GALLERY_TEXT_PAGE_GAP - 1) / pageStride))
+}
+
+function scheduleGalleryVirtualPagination() {
+  if (galleryVirtualMeasureFrame) {
+    window.cancelAnimationFrame(galleryVirtualMeasureFrame)
+  }
+
+  galleryVirtualMeasureFrame = window.requestAnimationFrame(() => {
+    galleryVirtualMeasureFrame = undefined
+    void syncGalleryVirtualPagination()
+  })
+}
+
+async function syncGalleryVirtualPagination() {
+  await nextTick()
+
+  if (readerMode.value !== 'gallery' || !hasTextPages.value) {
+    galleryVirtualPageCounts.value = []
+    return
+  }
+
+  const root = galleryTextMeasureRoot.value
+  if (!root) return
+
+  const { width, height } = galleryTextMetrics(root)
+  galleryVirtualPageCounts.value = images.value.map((image) => (
+    image.kind === 'text' ? measureGalleryTextHtml(image.html || '', width, height) : 1
+  ))
+  root.replaceChildren()
+  scheduleGalleryTextPagination()
+}
+
+async function syncGalleryTextPagination(target: GalleryTextPageTarget = 'keep') {
+  await nextTick()
+
+  if (!isGalleryTextPage()) {
+    galleryTextPageIndex.value = 0
+    galleryTextPageCount.value = 1
+    galleryTextPageWidth.value = 0
+    return
+  }
+
+  const viewport = galleryTextViewport.value
+  const flow = galleryTextFlow.value
+  if (!viewport || !flow) return
+
+  const nextWidth = Math.max(1, Math.floor(viewport.clientWidth))
+  galleryTextPageWidth.value = nextWidth
+  await nextTick()
+
+  const pageStride = nextWidth + GALLERY_TEXT_PAGE_GAP
+  const nextCount = Math.max(1, Math.ceil((flow.scrollWidth + GALLERY_TEXT_PAGE_GAP - 1) / pageStride))
+  galleryTextPageCount.value = nextCount
+  setGalleryVirtualPageCount(currentIndex.value, nextCount)
+
+  if (target === 'start') {
+    galleryTextPageIndex.value = 0
+    return
+  }
+
+  if (target === 'end') {
+    galleryTextPageIndex.value = nextCount - 1
+    return
+  }
+
+  if (typeof target === 'number') {
+    galleryTextPageIndex.value = Math.min(nextCount - 1, Math.max(0, target))
+    return
+  }
+
+  galleryTextPageIndex.value = Math.min(galleryTextPageIndex.value, nextCount - 1)
+}
+
+function turnGalleryTextPage(delta: 1 | -1) {
+  if (!isGalleryTextPage()) return false
+
+  const nextTextPageIndex = galleryTextPageIndex.value + delta
+  if (nextTextPageIndex < 0 || nextTextPageIndex >= galleryTextPageCount.value) return false
+
+  galleryTextPageIndex.value = nextTextPageIndex
+  scheduleHide()
+  return true
+}
+
 function previousPage() {
-  goToPage(currentIndex.value - 1, { animate: true })
+  if (turnGalleryTextPage(-1)) return
+  goToPage(currentIndex.value - 1, { animate: true, textPage: 'end' })
 }
 
 function nextPage() {
-  goToPage(currentIndex.value + 1, { animate: true })
+  if (turnGalleryTextPage(1)) return
+  goToPage(currentIndex.value + 1, { animate: true, textPage: 'start' })
 }
 
 function jumpToStart() {
-  goToPage(0, { animate: false })
+  goToPage(0, { animate: false, textPage: 'start' })
 }
 
 function jumpToEnd() {
-  goToPage(lastImageIndex.value, { animate: false })
+  goToPage(lastImageIndex.value, { animate: false, textPage: 'end' })
 }
 
 function toggleFavorite() {
@@ -848,6 +1181,12 @@ function togglePageTurnAnimation() {
   window.clearTimeout(hideTimer)
 }
 
+function toggleImageRoundedCorners() {
+  imageRoundedCorners.value = !imageRoundedCorners.value
+  controlsVisible.value = true
+  window.clearTimeout(hideTimer)
+}
+
 function pageTurnDirectionFor(nextIndex: number): PageTurnDirection {
   const movingForward = nextIndex > currentIndex.value
   const visuallyNext = galleryDirection.value === 'right-next' ? movingForward : !movingForward
@@ -856,18 +1195,24 @@ function pageTurnDirectionFor(nextIndex: number): PageTurnDirection {
 
 function goToPage(index: number, options: PageNavigationOptions = {}) {
   const nextIndex = Math.min(lastImageIndex.value, Math.max(0, index))
+  const currentPageIndex = currentIndex.value
   const shouldAnimate = Boolean(
     options.animate
     && galleryPageTransitionEnabled.value
     && readerMode.value === 'gallery'
-    && Math.abs(nextIndex - currentIndex.value) === 1,
+    && Math.abs(nextIndex - currentPageIndex) === 1,
   )
 
   if (shouldAnimate) {
     pageTurnDirection.value = pageTurnDirectionFor(nextIndex)
   }
 
+  pendingGalleryTextPageTarget = options.textPage ?? 'start'
   currentIndex.value = nextIndex
+  if (nextIndex === currentPageIndex) {
+    scheduleGalleryTextPagination(pendingGalleryTextPageTarget)
+    pendingGalleryTextPageTarget = 'start'
+  }
 
   if (isContinuousMode.value) {
     void scrollToCurrentIndex(options.behavior ?? 'smooth')
@@ -958,8 +1303,30 @@ async function handleImageError(index: number) {
   await ensureImageLoaded(index)
 }
 
+function goToVirtualPage(pageIndex: number) {
+  const targetPage = Math.min(readerProgressMax.value, Math.max(0, pageIndex))
+  let offset = 0
+
+  for (const [index, count] of galleryNormalizedPageCounts.value.entries()) {
+    const nextOffset = offset + count
+    if (targetPage < nextOffset) {
+      const image = images.value[index]
+      const textPage = image?.kind === 'text' ? targetPage - offset : undefined
+      goToPage(index, { animate: false, textPage })
+      return
+    }
+    offset = nextOffset
+  }
+
+  goToPage(lastImageIndex.value, { animate: false, textPage: 'end' })
+}
+
 function handleProgressInput(event: Event) {
   const nextIndex = Number((event.target as HTMLInputElement).value)
+  if (isGalleryPagedProgress.value) {
+    goToVirtualPage(nextIndex)
+    return
+  }
   goToPage(nextIndex)
 }
 
@@ -1206,6 +1573,10 @@ function handleContinuousScroll() {
   object-fit: contain;
 }
 
+.reader-image.rounded {
+  border-radius: 12px;
+}
+
 .reader-image.fit-width {
   width: 100%;
   height: auto;
@@ -1243,15 +1614,38 @@ function handleContinuousScroll() {
 }
 
 .gallery-text-page {
+  box-sizing: border-box;
   height: 100dvh;
-  overflow-y: auto;
+  overflow: hidden;
   padding: calc(var(--safe-top) + 76px) 24px calc(var(--safe-bottom) + 128px);
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
 }
 
-.gallery-text-page::-webkit-scrollbar {
-  display: none;
+.gallery-text-viewport {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.reader-text-flow {
+  width: var(--reader-text-page-width, 100%);
+  height: 100%;
+  column-fill: auto;
+  column-gap: var(--reader-text-page-gap, 36px);
+  column-width: var(--reader-text-page-width, 100%);
+}
+
+.gallery-stage.page-turning .reader-text-flow {
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+.reader-text-measure-root {
+  position: fixed;
+  top: 0;
+  left: -200vw;
+  z-index: -1;
+  pointer-events: none;
+  visibility: hidden;
 }
 
 .continuous-text-page {
@@ -1393,6 +1787,104 @@ function handleContinuousScroll() {
   z-index: 20;
   padding: 34px 18px calc(14px + var(--safe-bottom));
   background: linear-gradient(to top, rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0));
+}
+
+.reader-page-status {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 12;
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 24px calc(10px + var(--safe-bottom));
+  color: rgba(229, 226, 225, 0.78);
+  font-size: 13px;
+  letter-spacing: 0;
+  pointer-events: none;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.78);
+}
+
+.reader-page-status::before {
+  position: absolute;
+  inset: -34px 0 0;
+  z-index: -1;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0));
+  content: '';
+}
+
+.reader-device-status,
+.reader-chapter-status,
+.reader-battery {
+  display: inline-flex;
+  align-items: center;
+}
+
+.reader-device-status {
+  flex: 0 0 auto;
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.reader-battery {
+  gap: 5px;
+}
+
+.reader-battery.charging {
+  color: var(--color-accent-bright);
+}
+
+.reader-battery-icon {
+  position: relative;
+  display: inline-flex;
+  width: 18px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+
+.reader-battery-icon::after {
+  position: absolute;
+  top: 2px;
+  right: -4px;
+  width: 2px;
+  height: 4px;
+  border-radius: 0 2px 2px 0;
+  background: currentColor;
+  content: '';
+}
+
+.reader-battery-icon i {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: var(--reader-battery-fill, 0px);
+  max-width: 14px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.reader-chapter-status {
+  min-width: 0;
+  justify-content: flex-end;
+  gap: 10px;
+  text-align: right;
+}
+
+.reader-status-chapter {
+  max-width: min(52vw, 420px);
+  overflow: hidden;
+  color: rgba(229, 226, 225, 0.86);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-status-page {
+  flex: 0 0 auto;
+  color: rgba(229, 226, 225, 0.9);
+  font-variant-numeric: tabular-nums;
 }
 
 .reader-progress-row {

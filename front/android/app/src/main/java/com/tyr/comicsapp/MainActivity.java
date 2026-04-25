@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(WebDavPlugin.class);
         registerPlugin(JmComicPlugin.class);
         registerPlugin(NativeHttpPlugin.class);
+        registerPlugin(ReaderSystemUiPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

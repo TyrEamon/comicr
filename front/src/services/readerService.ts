@@ -7,6 +7,7 @@ export interface ReaderPreferences {
   fitMode: ReaderFitMode
   galleryDirection: ReaderGalleryDirection
   pageTurnAnimation: boolean
+  imageRoundedCorners: boolean
   textFontSize: number
   textLineHeight: number
   textIndentEm: number
@@ -27,6 +28,7 @@ const defaultPreferences: ReaderPreferences = {
   fitMode: 'contain',
   galleryDirection: 'right-next',
   pageTurnAnimation: true,
+  imageRoundedCorners: false,
   textFontSize: readerTextPreferenceLimits.fontSize.defaultValue,
   textLineHeight: readerTextPreferenceLimits.lineHeight.defaultValue,
   textIndentEm: readerTextPreferenceLimits.indentEm.defaultValue,
@@ -49,6 +51,10 @@ function normalizePageTurnAnimation(value: unknown) {
   return typeof value === 'boolean' ? value : true
 }
 
+function normalizeImageRoundedCorners(value: unknown) {
+  return typeof value === 'boolean' ? value : false
+}
+
 function normalizeNumber(value: unknown, fallback: number, min: number, max: number) {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.min(max, Math.max(min, value))
@@ -65,6 +71,7 @@ function readPreferences(): ReaderPreferences {
       fitMode: normalizeFitMode(parsed.fitMode),
       galleryDirection: normalizeGalleryDirection(parsed.galleryDirection),
       pageTurnAnimation: normalizePageTurnAnimation(parsed.pageTurnAnimation),
+      imageRoundedCorners: normalizeImageRoundedCorners(parsed.imageRoundedCorners),
       textFontSize: normalizeNumber(parsed.textFontSize, defaultPreferences.textFontSize, readerTextPreferenceLimits.fontSize.min, readerTextPreferenceLimits.fontSize.max),
       textLineHeight: normalizeNumber(parsed.textLineHeight, defaultPreferences.textLineHeight, readerTextPreferenceLimits.lineHeight.min, readerTextPreferenceLimits.lineHeight.max),
       textIndentEm: normalizeNumber(parsed.textIndentEm, defaultPreferences.textIndentEm, readerTextPreferenceLimits.indentEm.min, readerTextPreferenceLimits.indentEm.max),
@@ -91,6 +98,7 @@ export const readerService = {
       fitMode: normalizeFitMode(nextPreferences.fitMode ?? current.fitMode),
       galleryDirection: normalizeGalleryDirection(nextPreferences.galleryDirection ?? current.galleryDirection),
       pageTurnAnimation: normalizePageTurnAnimation(nextPreferences.pageTurnAnimation ?? current.pageTurnAnimation),
+      imageRoundedCorners: normalizeImageRoundedCorners(nextPreferences.imageRoundedCorners ?? current.imageRoundedCorners),
       textFontSize: normalizeNumber(nextPreferences.textFontSize ?? current.textFontSize, defaultPreferences.textFontSize, readerTextPreferenceLimits.fontSize.min, readerTextPreferenceLimits.fontSize.max),
       textLineHeight: normalizeNumber(nextPreferences.textLineHeight ?? current.textLineHeight, defaultPreferences.textLineHeight, readerTextPreferenceLimits.lineHeight.min, readerTextPreferenceLimits.lineHeight.max),
       textIndentEm: normalizeNumber(nextPreferences.textIndentEm ?? current.textIndentEm, defaultPreferences.textIndentEm, readerTextPreferenceLimits.indentEm.min, readerTextPreferenceLimits.indentEm.max),
