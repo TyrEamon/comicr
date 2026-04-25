@@ -129,9 +129,9 @@ jobs:
           NOTES="APK built from commit ${GITHUB_SHA}. versionName=${COMICR_VERSION_NAME}, versionCode=${COMICR_VERSION_CODE}."
 
           if gh release view "$VERSION_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$VERSION_TAG" --repo "$GITHUB_REPOSITORY" --title "Comicr APK ${COMICR_VERSION_NAME}" --notes "$NOTES" --prerelease
+            gh release edit "$VERSION_TAG" --repo "$GITHUB_REPOSITORY" --title "Comicr APK ${COMICR_VERSION_NAME}" --notes "$NOTES" --prerelease=false
           else
-            gh release create "$VERSION_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Comicr APK ${COMICR_VERSION_NAME}" --notes "$NOTES" --prerelease
+            gh release create "$VERSION_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Comicr APK ${COMICR_VERSION_NAME}" --notes "$NOTES"
           fi
 
           gh release upload "$VERSION_TAG" "$VERSIONED_APK" --repo "$GITHUB_REPOSITORY" --clobber
@@ -141,9 +141,9 @@ jobs:
 
           LATEST_NOTES="Latest APK built from commit ${GITHUB_SHA}. versionName=${COMICR_VERSION_NAME}, versionCode=${COMICR_VERSION_CODE}."
           if gh release view "$LATEST_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$LATEST_TAG" --repo "$GITHUB_REPOSITORY" --title "$LATEST_TITLE" --notes "$LATEST_NOTES" --prerelease
+            gh release edit "$LATEST_TAG" --repo "$GITHUB_REPOSITORY" --title "$LATEST_TITLE" --notes "$LATEST_NOTES" --prerelease=false --latest
           else
-            gh release create "$LATEST_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$LATEST_TITLE" --notes "$LATEST_NOTES" --prerelease
+            gh release create "$LATEST_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$LATEST_TITLE" --notes "$LATEST_NOTES" --latest
           fi
 
           gh release upload "$LATEST_TAG" "$APK_PATH" --repo "$GITHUB_REPOSITORY" --clobber
