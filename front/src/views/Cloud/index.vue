@@ -1,12 +1,9 @@
 <template>
   <div class="page cloud-page">
     <section class="storage-overview">
-      <p class="label-caps">云盘</p>
-      <div class="storage-row">
-        <div>
-          <h1 class="page-title">WebDAV 漫画库</h1>
-        </div>
-        <strong>{{ library.count }} 本</strong>
+      <div class="storage-label-row">
+        <p class="label-caps">云盘</p>
+        <strong class="storage-count">{{ library.count }} 本</strong>
       </div>
     </section>
 
@@ -350,21 +347,21 @@ function formatImageCount(value?: number) {
 
 <style scoped>
 .storage-overview {
-  margin-bottom: 28px;
+  margin-bottom: 20px;
 }
 
-.storage-row {
+.storage-label-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 18px;
 }
 
-.storage-row strong {
-  margin-bottom: 6px;
+.storage-count {
   color: var(--color-accent-bright);
-  font-size: 24px;
-  font-weight: 300;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
   white-space: nowrap;
 }
 

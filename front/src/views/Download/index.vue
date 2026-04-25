@@ -2,7 +2,6 @@
   <div class="page download-page">
     <section class="download-hero">
       <p class="label-caps">下载</p>
-      <h1 class="page-title">下载任务</h1>
     </section>
 
     <section class="download-box surface-card">
@@ -249,7 +248,7 @@ function progressPercent(task: DownloadTask) {
 
 <style scoped>
 .download-hero {
-  margin-bottom: 26px;
+  margin-bottom: 18px;
 }
 
 .download-box {

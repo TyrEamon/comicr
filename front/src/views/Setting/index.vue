@@ -1,7 +1,6 @@
 <template>
   <div class="page settings-page">
     <p class="label-caps">设置</p>
-    <h1 class="page-title">设置</h1>
 
     <section class="surface-card setting-card library-card">
       <div class="setting-card-header">
@@ -198,21 +197,48 @@
       </div>
     </section>
 
-    <section class="surface-card setting-card tips-card">
-      <div class="setting-card-header">
+    <section class="surface-card setting-card tips-card" :class="{ 'tips-card-expanded': tipsExpanded }">
+      <button
+        class="tips-toggle"
+        type="button"
+        :aria-expanded="tipsExpanded"
+        aria-controls="download-link-tips"
+        @click="tipsExpanded = !tipsExpanded"
+      >
         <div>
           <h2>下载链接 Tips</h2>
           <p>下载页可粘贴漫画/本子链接或 JM 码。</p>
         </div>
-        <span class="status-pill">支持格式</span>
-      </div>
+        <span class="status-pill tips-toggle-pill">
+          支持格式
+          <ChevronDown :size="15" class="tips-toggle-icon" />
+        </span>
+      </button>
 
-      <div class="tips-list">
-        <span>JM / 18Comic：jm123456 或 18comic.vip/photo/123456</span>
-        <span>E-Hentai / ExHentai：e-hentai.org/g/123456/token/</span>
-        <span>Telegraph：telegra.ph/xxx-xx-xx</span>
-        <span>WNACG：wnacg.com/photos-index-aid-123.html</span>
-        <span>nhentai / Hitomi：nhentai.xxx/g/123456/、hitomi.la/...-123.html</span>
+      <div v-if="tipsExpanded" id="download-link-tips" class="tips-list">
+        <span>
+          <strong>JM / 18Comic</strong>
+          <small>JM 码：jm123456</small>
+          <code>https://18comic.vip/photo/123456</code>
+        </span>
+        <span>
+          <strong>E-Hentai / ExHentai</strong>
+          <code>https://e-hentai.org/g/123456/token/</code>
+          <code>https://exhentai.org/g/123456/token/</code>
+        </span>
+        <span>
+          <strong>Telegraph</strong>
+          <code>https://telegra.ph/xxx-xx-xx</code>
+        </span>
+        <span>
+          <strong>WNACG</strong>
+          <code>https://www.wnacg.com/photos-index-aid-123.html</code>
+        </span>
+        <span>
+          <strong>nhentai / Hitomi</strong>
+          <code>https://nhentai.xxx/g/123456/</code>
+          <code>https://hitomi.la/manga/example-123456.html</code>
+        </span>
       </div>
     </section>
 
@@ -289,7 +315,7 @@ import { localFolderService } from '@/services/localFolderService'
 import { nativeHttpService } from '@/services/nativeHttpService'
 import { networkProxySettings } from '@/services/networkProxySettings'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { Archive, FolderOpen, HardDrive, Images, RotateCcw, Trash2, Wifi } from 'lucide-vue-next'
+import { Archive, ChevronDown, FolderOpen, HardDrive, Images, RotateCcw, Trash2, Wifi } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 
 const library = useLibraryStore()
@@ -309,6 +335,7 @@ const proxyInput = ref(networkProxySettings.toInputValue())
 const proxyEnabled = ref(networkProxySettings.getSettings().enabled)
 const proxySettingsVersion = ref(0)
 const proxyTestLatencyMs = ref<number | null>(null)
+const tipsExpanded = ref(false)
 const MIN_THREAD_COUNT = 1
 const MAX_CLOUD_THREAD_COUNT = 4
 const MAX_JM_THREAD_COUNT = 8
@@ -596,6 +623,7 @@ async function importLocalLibraryItems(
     totalImages += manga.imageCount
     count += 1
     lastManga = { id: manga.id, title: manga.title }
+    if (isReaderFile) await yieldAfterReaderImport()
   }
 
   return {
@@ -620,6 +648,10 @@ async function importLocalReaderFile(
   return folder.sourceType === 'epub'
     ? libraryService.importEpubFile(file, title, { id: mangaId, localPath })
     : libraryService.importTextFile(file, title, { id: mangaId, localPath })
+}
+
+function yieldAfterReaderImport() {
+  return new Promise((resolve) => window.setTimeout(resolve, 20))
 }
 
 async function refreshCloudCacheStats() {
@@ -803,7 +835,37 @@ function formatBytes(value: number) {
 
 .tips-card {
   display: grid;
+  gap: 0;
+}
+
+.tips-card-expanded {
   gap: 14px;
+}
+
+.tips-toggle {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.tips-toggle-pill {
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tips-toggle-icon {
+  transition: transform 160ms ease;
+}
+
+.tips-card-expanded .tips-toggle-icon {
+  transform: rotate(180deg);
 }
 
 .setting-card-header {
@@ -887,6 +949,8 @@ function formatBytes(value: number) {
 }
 
 .tips-list span {
+  display: grid;
+  gap: 6px;
   border: 1px solid rgba(153, 143, 131, 0.14);
   border-radius: 12px;
   padding: 10px 12px;
@@ -894,6 +958,26 @@ function formatBytes(value: number) {
   background: rgba(255, 255, 255, 0.022);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.tips-list strong {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.tips-list small {
+  color: rgba(209, 197, 183, 0.62);
+  font-size: 12px;
+}
+
+.tips-list code {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--color-accent-bright);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .proxy-help {

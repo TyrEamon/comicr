@@ -2,7 +2,9 @@ package com.tyr.comicsapp;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.res.AssetFileDescriptor;
 import android.net.Uri;
+import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.util.Base64;
@@ -19,6 +21,8 @@ import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -35,6 +39,7 @@ import java.util.zip.ZipInputStream;
 public class LocalFolderPlugin extends Plugin {
     private static final int MAX_MANGAS = 300;
     private static final int MAX_IMAGES_PER_MANGA = 3000;
+    private static final int MAX_FILE_CHUNK_BYTES = 512 * 1024;
     private static final List<String> CONTENT_DIRECTORY_NAMES = Arrays.asList(
         "page", "pages", "image", "images", "img", "imgs", "raw", "scan", "scans", "original", "origin"
     );
@@ -100,7 +105,7 @@ public class LocalFolderPlugin extends Plugin {
     public void readFile(PluginCall call) {
         String uriValue = call.getString("uri");
         if (uriValue == null || uriValue.isEmpty()) {
-            call.reject("缂哄皯鏂囦欢鍦板潃");
+            call.reject("缺少文件地址");
             return;
         }
 
@@ -114,7 +119,42 @@ public class LocalFolderPlugin extends Plugin {
                 response.put("base64", readBase64(uri));
                 resolveOnMain(call, response);
             } catch (Exception error) {
-                rejectOnMain(call, error.getMessage() == null ? "璇诲彇鏂囦欢澶辫触" : error.getMessage());
+                rejectOnMain(call, error.getMessage() == null ? "读取文件失败" : error.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void readFileChunk(PluginCall call) {
+        String uriValue = call.getString("uri");
+        if (uriValue == null || uriValue.isEmpty()) {
+            call.reject("缺少文件地址");
+            return;
+        }
+
+        Double offsetValue = call.getDouble("offset", 0D);
+        Integer lengthValue = call.getInt("length", MAX_FILE_CHUNK_BYTES);
+        long offset = Math.max(0L, offsetValue == null ? 0L : offsetValue.longValue());
+        int length = Math.min(MAX_FILE_CHUNK_BYTES, Math.max(1, lengthValue == null ? MAX_FILE_CHUNK_BYTES : lengthValue));
+        Uri uri = Uri.parse(uriValue);
+
+        scannerExecutor.execute(() -> {
+            try {
+                FileChunk chunk = readBase64Chunk(uri, offset, length);
+                long size = fileSize(uri);
+                long nextOffset = offset + chunk.bytesRead;
+
+                JSObject response = new JSObject();
+                response.put("name", queryDisplayName(uri, "document"));
+                response.put("type", mimeType(uri));
+                response.put("size", size);
+                response.put("offset", offset);
+                response.put("nextOffset", nextOffset);
+                response.put("base64", chunk.base64);
+                response.put("done", chunk.bytesRead < length || (size >= 0 && nextOffset >= size));
+                resolveOnMain(call, response);
+            } catch (Exception error) {
+                rejectOnMain(call, error.getMessage() == null ? "读取文件失败" : error.getMessage());
             }
         });
     }
@@ -654,7 +694,7 @@ public class LocalFolderPlugin extends Plugin {
     private String readBase64(Uri uri) throws Exception {
         try (InputStream input = getContext().getContentResolver().openInputStream(uri);
              ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            if (input == null) throw new Exception("无法读取图片");
+            if (input == null) throw new Exception("无法读取文件");
             byte[] buffer = new byte[32 * 1024];
             int read;
             while ((read = input.read(buffer)) != -1) {
@@ -662,6 +702,83 @@ public class LocalFolderPlugin extends Plugin {
             }
             return Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP);
         }
+    }
+
+    private FileChunk readBase64Chunk(Uri uri, long offset, int length) throws Exception {
+        try {
+            return readBase64ChunkFromDescriptor(uri, offset, length);
+        } catch (Exception ignored) {
+            return readBase64ChunkFromStream(uri, offset, length);
+        }
+    }
+
+    private FileChunk readBase64ChunkFromDescriptor(Uri uri, long offset, int length) throws Exception {
+        ParcelFileDescriptor descriptor = getContext().getContentResolver().openFileDescriptor(uri, "r");
+        if (descriptor == null) throw new Exception("无法读取文件");
+
+        try (ParcelFileDescriptor closeableDescriptor = descriptor;
+             FileInputStream input = new FileInputStream(closeableDescriptor.getFileDescriptor());
+             ByteArrayOutputStream output = new ByteArrayOutputStream(length)) {
+            input.getChannel().position(offset);
+            int bytesRead = copyLimited(input, output, length);
+            return new FileChunk(bytesRead, Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP));
+        }
+    }
+
+    private FileChunk readBase64ChunkFromStream(Uri uri, long offset, int length) throws Exception {
+        try (InputStream input = getContext().getContentResolver().openInputStream(uri);
+             ByteArrayOutputStream output = new ByteArrayOutputStream(length)) {
+            if (input == null) throw new Exception("无法读取文件");
+            skipFully(input, offset);
+            int bytesRead = copyLimited(input, output, length);
+            return new FileChunk(bytesRead, Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP));
+        }
+    }
+
+    private int copyLimited(InputStream input, ByteArrayOutputStream output, int length) throws IOException {
+        byte[] buffer = new byte[Math.min(32 * 1024, length)];
+        int remaining = length;
+        int totalRead = 0;
+        while (remaining > 0) {
+            int read = input.read(buffer, 0, Math.min(buffer.length, remaining));
+            if (read == -1) break;
+            output.write(buffer, 0, read);
+            remaining -= read;
+            totalRead += read;
+        }
+        return totalRead;
+    }
+
+    private void skipFully(InputStream input, long offset) throws IOException {
+        long remaining = offset;
+        while (remaining > 0) {
+            long skipped = input.skip(remaining);
+            if (skipped <= 0) {
+                if (input.read() == -1) break;
+                skipped = 1;
+            }
+            remaining -= skipped;
+        }
+    }
+
+    private long fileSize(Uri uri) {
+        try (AssetFileDescriptor descriptor = getContext().getContentResolver().openAssetFileDescriptor(uri, "r")) {
+            if (descriptor != null && descriptor.getLength() >= 0) {
+                return descriptor.getLength();
+            }
+        } catch (Exception ignored) {
+            // Fall through to OpenableColumns.
+        }
+
+        try (android.database.Cursor cursor = getContext().getContentResolver().query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.SIZE);
+                if (index >= 0 && !cursor.isNull(index)) return cursor.getLong(index);
+            }
+        } catch (Exception ignored) {
+            // Size is optional for document providers.
+        }
+        return -1L;
     }
 
     private JSArray pagesToJson(List<PageFile> pages) {
@@ -737,6 +854,16 @@ public class LocalFolderPlugin extends Plugin {
             this.uri = uri;
             this.archiveUri = archiveUri;
             this.entryName = entryName;
+        }
+    }
+
+    private static class FileChunk {
+        final int bytesRead;
+        final String base64;
+
+        FileChunk(int bytesRead, String base64) {
+            this.bytesRead = bytesRead;
+            this.base64 = base64;
         }
     }
 }

@@ -38,11 +38,22 @@ interface NativeFileReadResult {
   base64: string
 }
 
+interface NativeFileChunkReadResult {
+  name: string
+  type: string
+  size: number
+  offset: number
+  nextOffset: number
+  base64: string
+  done: boolean
+}
+
 interface LocalFolderPlugin {
   pickFolder(): Promise<NativeFolderScanResult>
   scanFolder(options: { uri: string }): Promise<NativeFolderScanResult>
   readImage(options: { uri: string }): Promise<NativeImageReadResult>
   readFile(options: { uri: string }): Promise<NativeFileReadResult>
+  readFileChunk?: (options: { uri: string; offset: number; length: number }) => Promise<NativeFileChunkReadResult>
 }
 
 export interface LocalFolderImport {
@@ -69,14 +80,24 @@ export interface AuthorizedFolderRoot {
 
 const localFolderPlugin = registerPlugin<LocalFolderPlugin>('LocalFolder')
 const AUTHORIZED_FOLDER_ROOTS_KEY = 'comics-app:authorized-folder-roots:v1'
+const READ_FILE_CHUNK_BYTES = 512 * 1024
 
-function base64ToBlob(base64: string, type: string) {
+function base64ToBytes(base64: string) {
   const binary = atob(base64)
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index)
   }
+  return bytes
+}
+
+function base64ToBlob(base64: string, type: string) {
+  const bytes = base64ToBytes(base64)
   return new Blob([bytes], { type })
+}
+
+function yieldToEventLoop() {
+  return new Promise((resolve) => window.setTimeout(resolve, 0))
 }
 
 function loadJsonRecord<T>(key: string, fallback: T): T {
@@ -204,6 +225,32 @@ export const localFolderService = {
   async readFile(uri: string, fallbackType = 'application/octet-stream') {
     if (!this.isAvailable()) {
       throw new Error('读取授权文件需要 Android APK 环境')
+    }
+
+    if (localFolderPlugin.readFileChunk) {
+      const chunks: Uint8Array[] = []
+      let offset = 0
+      let name = 'document'
+      let type = fallbackType
+
+      for (let chunkIndex = 0; chunkIndex < 20_000; chunkIndex += 1) {
+        const result = await localFolderPlugin.readFileChunk({ uri, offset, length: READ_FILE_CHUNK_BYTES })
+        name = result.name || name
+        type = result.type || type
+        if (result.base64) chunks.push(base64ToBytes(result.base64))
+
+        const nextOffset = Number(result.nextOffset || offset)
+        if (result.done) break
+        if (nextOffset <= offset) {
+          throw new Error('读取授权文件失败：文件流没有继续前进')
+        }
+
+        offset = nextOffset
+        await yieldToEventLoop()
+      }
+
+      const blob = new Blob(chunks, { type })
+      return new File([blob], name, { type: blob.type || fallbackType })
     }
 
     const result = await localFolderPlugin.readFile({ uri })
