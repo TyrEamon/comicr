@@ -61,38 +61,62 @@ jobs:
         working-directory: front/android
         run: chmod +x ./gradlew
 
-      - name: Build debug APK
+      - name: Decode release keystore
         working-directory: front/android
-        run: ./gradlew assembleDebug
+        env:
+          COMICR_KEYSTORE_BASE64: ${{ secrets.COMICR_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$COMICR_KEYSTORE_BASE64" ]; then
+            printf '%s' "$COMICR_KEYSTORE_BASE64" | base64 --decode > app/comicr-upload.jks
+          fi
+
+      - name: Build APK
+        working-directory: front/android
+        env:
+          COMICR_VERSION_CODE: ${{ github.run_number }}
+          COMICR_VERSION_NAME: 1.0.${{ github.run_number }}
+          COMICR_KEYSTORE_PATH: app/comicr-upload.jks
+          COMICR_KEYSTORE_PASSWORD: ${{ secrets.COMICR_KEYSTORE_PASSWORD }}
+          COMICR_KEY_ALIAS: ${{ secrets.COMICR_KEY_ALIAS }}
+          COMICR_KEY_PASSWORD: ${{ secrets.COMICR_KEY_PASSWORD }}
+          COMICR_KEYSTORE_TYPE: ${{ secrets.COMICR_KEYSTORE_TYPE }}
+        run: |
+          mkdir -p release
+          if [ -f "$COMICR_KEYSTORE_PATH" ] \
+            && [ -n "$COMICR_KEYSTORE_PASSWORD" ] \
+            && [ -n "$COMICR_KEY_ALIAS" ] \
+            && [ -n "$COMICR_KEY_PASSWORD" ]; then
+            ./gradlew assembleRelease
+            cp app/build/outputs/apk/release/*.apk release/comicr.apk
+          else
+            echo "::warning::Signing secrets are not configured; building debug APK. This APK may not support stable overwrite updates across CI runs."
+            ./gradlew assembleDebug
+            cp app/build/outputs/apk/debug/*.apk release/comicr-debug.apk
+          fi
+          ls -lah release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: comics-app-debug-apk
-          path: front/android/app/build/outputs/apk/debug/*.apk
+          name: comicr-android-apk
+          path: front/android/release/*.apk
 
-      - name: Prepare release APK
-        if: github.ref == 'refs/heads/main'
-        working-directory: front/android
-        run: |
-          mkdir -p release
-          cp app/build/outputs/apk/debug/*.apk release/comicr-debug.apk
-
-      - name: Publish debug release
+      - name: Publish latest APK
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: debug-latest
-          TITLE: Comicr Debug APK
+          TITLE: Comicr Latest APK
+          COMICR_VERSION_CODE: ${{ github.run_number }}
         run: |
           git tag -f "$TAG" "$GITHUB_SHA"
           git push --force origin "refs/tags/$TAG"
 
-          NOTES="Latest debug APK built from commit ${GITHUB_SHA}."
+          NOTES="Latest APK built from commit ${GITHUB_SHA}. versionCode=${COMICR_VERSION_CODE}."
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes "$NOTES" --prerelease
           else
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" --prerelease
           fi
 
-          gh release upload "$TAG" front/android/release/comicr-debug.apk --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" front/android/release/*.apk --repo "$GITHUB_REPOSITORY" --clobber

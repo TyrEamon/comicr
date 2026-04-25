@@ -11,3 +11,5 @@ front/android/build/
 front/android/capacitor-cordova-android-plugins/build/
 front/android/app/src/main/assets/public/
 front/.vite/
+.local-secrets/
+docs/

@@ -1,6 +1,34 @@
 apply plugin: 'com.android.application'
 apply plugin: 'com.chaquo.python'
 
+def envOrDefault = { name, fallback ->
+    def value = System.getenv(name)
+    return value == null || value.trim().isEmpty() ? fallback : value.trim()
+}
+
+def intEnvOrDefault = { name, fallback ->
+    def value = System.getenv(name)
+    if (value == null || value.trim().isEmpty()) return fallback
+    try {
+        return Math.max(1, value.trim().toInteger())
+    } catch (ignored) {
+        return fallback
+    }
+}
+
+def appVersionCode = intEnvOrDefault('COMICR_VERSION_CODE', 1)
+def appVersionName = envOrDefault('COMICR_VERSION_NAME', '1.0')
+def releaseStorePath = envOrDefault('COMICR_KEYSTORE_PATH', '')
+def releaseStorePassword = envOrDefault('COMICR_KEYSTORE_PASSWORD', '')
+def releaseKeyAlias = envOrDefault('COMICR_KEY_ALIAS', '')
+def releaseKeyPassword = envOrDefault('COMICR_KEY_PASSWORD', '')
+def releaseStoreType = envOrDefault('COMICR_KEYSTORE_TYPE', '')
+def hasReleaseSigning = releaseStorePath
+    && releaseStorePassword
+    && releaseKeyAlias
+    && releaseKeyPassword
+    && file(releaseStorePath).exists()
+
 android {
     namespace "com.tyr.comicsapp"
     compileSdk rootProject.ext.compileSdkVersion
@@ -8,8 +36,8 @@ android {
         applicationId "com.tyr.comicsapp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters "arm64-v8a", "x86_64"
@@ -20,8 +48,24 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseStorePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+                if (releaseStoreType) {
+                    storeType releaseStoreType
+                }
+            }
+        }
+    }
     buildTypes {
         release {
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
