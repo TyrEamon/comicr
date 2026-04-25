@@ -1,7 +1,7 @@
 <template>
   <div class="app-shell" :class="{ fullscreen }">
     <MobileTopBar v-if="!fullscreen" :title="title" @menu="openMenu" @search="handleSearch" />
-    <div v-if="searchOpen" class="search-dismiss-layer" @click="closeSearch" />
+    <div v-if="searchOpen" class="search-dismiss-layer" aria-hidden="true" />
     <Transition name="search-pop">
       <div v-if="searchOpen" class="floating-search" @click.stop>
         <input
@@ -12,6 +12,7 @@
           :placeholder="`搜索${title}`"
           aria-label="搜索"
           @input="emitSearch"
+          @keydown.enter.prevent="finishSearchInput"
         />
       </div>
     </Transition>
@@ -98,6 +99,10 @@ function closeSearch() {
   emitSearch()
 }
 
+function finishSearchInput() {
+  searchInput.value?.blur()
+}
+
 function emitSearch() {
   window.dispatchEvent(new CustomEvent('app-search', { detail: searchQuery.value }))
 }
@@ -123,6 +128,7 @@ function emitSearch() {
   inset: 0;
   z-index: 45;
   background: transparent;
+  pointer-events: none;
 }
 
 .menu-backdrop {

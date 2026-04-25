@@ -2,6 +2,43 @@
   <div class="page library-page">
     <section class="library-hero">
       <p class="label-caps">书库</p>
+
+      <div class="library-controls" aria-label="书库工具">
+        <label class="sort-control">
+          <ArrowDownAZ :size="16" aria-hidden="true" />
+          <select v-model="sortMode" aria-label="书库排序">
+            <option v-for="option in sortOptions" :key="option.id" :value="option.id">
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
+
+        <div ref="filterPanelRef" class="filter-control">
+          <button
+            class="filter-button"
+            :class="{ active: filterPanelVisible || activeAllFilterCount < allFilterOptions.length }"
+            type="button"
+            aria-haspopup="menu"
+            :aria-expanded="filterPanelVisible"
+            @click="filterPanelVisible = !filterPanelVisible"
+          >
+            <SlidersHorizontal :size="16" aria-hidden="true" />
+            <span>过滤设置</span>
+          </button>
+
+          <div v-if="filterPanelVisible" class="filter-popover surface-card" role="menu">
+            <label v-for="option in allFilterOptions" :key="option.id" class="filter-option">
+              <input
+                type="checkbox"
+                :checked="allFilters[option.id]"
+                @change="handleAllFilterChange(option.id, $event)"
+              >
+              <span>{{ option.label }}</span>
+              <Check v-if="allFilters[option.id]" :size="15" aria-hidden="true" />
+            </label>
+          </div>
+        </div>
+      </div>
     </section>
 
     <nav class="library-tabs" aria-label="书库视图">
@@ -41,9 +78,9 @@
 
           <section v-else class="empty-state surface-card">
             <BookOpen :size="34" />
-            <h2>还没有漫画</h2>
-            <p>到设置里的漫画库导入第一本漫画。</p>
-            <div class="empty-actions">
+            <h2>{{ emptyTitle }}</h2>
+            <p>{{ emptyDescription }}</p>
+            <div v-if="showImportAction" class="empty-actions">
               <RouterLink class="primary-button" to="/setting">去设置</RouterLink>
             </div>
           </section>
@@ -55,13 +92,17 @@
 
 <script setup lang="ts">
 import { searchService } from '@/services/searchService'
+import { libraryService } from '@/services/libraryService'
+import type { MangaItem } from '@/services/types'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { BookOpen } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { ArrowDownAZ, BookOpen, Check, SlidersHorizontal } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import MangaGrid from './components/MangaGrid.vue'
 
-type LibraryTab = 'all' | 'favorite' | 'readLater' | 'cloud'
+type LibraryTab = 'all' | 'favorite' | 'readLater' | 'history' | 'novel' | 'cloud'
+type LibrarySortMode = 'name' | 'addedAt' | 'recent'
+type AllFilterKey = 'localManga' | 'cloudManga' | 'novel'
 
 interface LibraryViewState {
   activeTab: LibraryTab
@@ -69,42 +110,54 @@ interface LibraryViewState {
   restoreOnNextEntry: boolean
 }
 
+interface LibraryPreferences {
+  sortMode: LibrarySortMode
+  allFilters: Record<AllFilterKey, boolean>
+}
+
 const LIBRARY_VIEW_STATE_KEY = 'comicr:library-view-state:v1'
-const library = useLibraryStore()
+const LIBRARY_PREFERENCES_KEY = 'comicr:library-preferences:v1'
+
 const tabItems: Array<{ id: LibraryTab, label: string }> = [
   { id: 'all', label: '全部' },
   { id: 'favorite', label: '收藏' },
   { id: 'readLater', label: '稍后看' },
+  { id: 'history', label: '历史' },
+  { id: 'novel', label: '小说' },
   { id: 'cloud', label: '云盘' },
 ]
+
+const sortOptions: Array<{ id: LibrarySortMode, label: string }> = [
+  { id: 'name', label: '名称排序' },
+  { id: 'addedAt', label: '加入时间' },
+  { id: 'recent', label: '最近阅读' },
+]
+
+const allFilterOptions: Array<{ id: AllFilterKey, label: string }> = [
+  { id: 'localManga', label: '本地漫画' },
+  { id: 'cloudManga', label: '云盘漫画' },
+  { id: 'novel', label: '小说' },
+]
+
+const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
+const library = useLibraryStore()
 const initialViewState = loadLibraryViewState()
+const initialPreferences = loadLibraryPreferences()
 const searchQuery = ref('')
 const activeTab = ref<LibraryTab>(initialViewState.activeTab)
 const scrollByTab = ref<Record<LibraryTab, number>>(initialViewState.scrollByTab)
 const contentTransitionName = ref('library-slide-next')
+const sortMode = ref<LibrarySortMode>(initialPreferences.sortMode)
+const allFilters = ref<Record<AllFilterKey, boolean>>(initialPreferences.allFilters)
+const filterPanelVisible = ref(false)
+const filterPanelRef = ref<HTMLElement | null>(null)
 const touchStartX = ref(0)
 const touchStartY = ref(0)
 const pointerStartX = ref(0)
 const pointerStartY = ref(0)
 const pointerTracking = ref(false)
 
-onMounted(() => {
-  void restoreLibraryView()
-  window.addEventListener('app-search', handleAppSearch)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('app-search', handleAppSearch)
-})
-
-onBeforeRouteLeave((to) => {
-  if (to.name === 'manga-detail' || to.name === 'reader') {
-    saveCurrentViewState()
-    return
-  }
-
-  clearViewState()
-})
+const activeAllFilterCount = computed(() => allFilterOptions.filter((option) => allFilters.value[option.id]).length)
 
 const visibleMangas = computed(() => {
   const query = searchQuery.value.trim()
@@ -118,15 +171,60 @@ const visibleMangas = computed(() => {
       const shelf = library.getShelfState(manga.id)
       if (activeTab.value === 'favorite') return shelf.favorite
       if (activeTab.value === 'readLater') return shelf.readLater
-      if (activeTab.value === 'cloud') return manga.source === 'cloud'
-      return true
+      if (activeTab.value === 'history') return hasReadingProgress(manga)
+      if (activeTab.value === 'novel') return isNovel(manga)
+      if (activeTab.value === 'cloud') return isCloudManga(manga)
+
+      return allFilterEnabledFor(manga)
     })
-    .sort((left, right) => {
-      const leftPinned = Number(library.getShelfState(left.id).pinned)
-      const rightPinned = Number(library.getShelfState(right.id).pinned)
-      return rightPinned - leftPinned || right.updatedAt - left.updatedAt
-    })
+    .sort(compareMangas)
 })
+
+const emptyTitle = computed(() => {
+  if (searchQuery.value.trim()) return '没有匹配的作品'
+  if (activeTab.value === 'favorite') return '还没有收藏'
+  if (activeTab.value === 'readLater') return '稍后看是空的'
+  if (activeTab.value === 'history') return '还没有阅读历史'
+  if (activeTab.value === 'novel') return '还没有小说'
+  if (activeTab.value === 'cloud') return '还没有云盘漫画'
+  if (activeAllFilterCount.value === 0) return '全部过滤已清空'
+  return '还没有漫画'
+})
+
+const emptyDescription = computed(() => {
+  if (searchQuery.value.trim()) return '换一个关键词，或者清空搜索后再看。'
+  if (activeTab.value === 'history') return '读过漫画或小说后，这里会按阅读记录展示。'
+  if (activeTab.value === 'novel') return '导入 EPUB 或 TXT 后，小说会出现在这里。'
+  if (activeTab.value === 'cloud') return '连接并刷新 WebDAV 后，云盘漫画会出现在这里。'
+  if (activeAllFilterCount.value === 0 && activeTab.value === 'all') return '打开过滤设置，至少勾选一种内容。'
+  return '到设置里的漫画库导入第一本漫画。'
+})
+
+const showImportAction = computed(() => !searchQuery.value.trim() && activeTab.value !== 'history')
+
+onMounted(() => {
+  void restoreLibraryView()
+  window.addEventListener('app-search', handleAppSearch)
+  document.addEventListener('pointerdown', handleDocumentPointerDown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('app-search', handleAppSearch)
+  document.removeEventListener('pointerdown', handleDocumentPointerDown)
+})
+
+onBeforeRouteLeave((to) => {
+  if (to.name === 'manga-detail' || to.name === 'reader') {
+    saveCurrentViewState()
+    return
+  }
+
+  clearViewState()
+})
+
+watch([sortMode, allFilters], () => {
+  saveLibraryPreferences()
+}, { deep: true })
 
 function handleAppSearch(event: Event) {
   searchQuery.value = String((event as CustomEvent<string>).detail ?? '')
@@ -140,6 +238,7 @@ function setActiveTab(tab: LibraryTab) {
   const nextIndex = tabItems.findIndex((item) => item.id === tab)
   contentTransitionName.value = nextIndex >= currentIndex ? 'library-slide-next' : 'library-slide-prev'
   activeTab.value = tab
+  filterPanelVisible.value = false
   void nextTick(() => restoreScrollForTab(tab))
 }
 
@@ -185,17 +284,39 @@ function handlePointerCancel() {
   pointerTracking.value = false
 }
 
+function handleDocumentPointerDown(event: PointerEvent) {
+  const target = event.target
+  if (!(target instanceof Node)) return
+  if (filterPanelRef.value?.contains(target)) return
+  filterPanelVisible.value = false
+}
+
+function handleAllFilterChange(filter: AllFilterKey, event: Event) {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  allFilters.value = {
+    ...allFilters.value,
+    [filter]: target.checked,
+  }
+}
+
 function emptyScrollByTab(): Record<LibraryTab, number> {
   return {
     all: 0,
     favorite: 0,
     readLater: 0,
+    history: 0,
+    novel: 0,
     cloud: 0,
   }
 }
 
 function isLibraryTab(value: unknown): value is LibraryTab {
   return tabItems.some((item) => item.id === value)
+}
+
+function isLibrarySortMode(value: unknown): value is LibrarySortMode {
+  return sortOptions.some((item) => item.id === value)
 }
 
 function loadLibraryViewState(): LibraryViewState {
@@ -216,6 +337,8 @@ function loadLibraryViewState(): LibraryViewState {
         all: Number(scrollState.all) || 0,
         favorite: Number(scrollState.favorite) || 0,
         readLater: Number(scrollState.readLater) || 0,
+        history: Number(scrollState.history) || 0,
+        novel: Number(scrollState.novel) || 0,
         cloud: Number(scrollState.cloud) || 0,
       },
       restoreOnNextEntry: true,
@@ -227,6 +350,38 @@ function loadLibraryViewState(): LibraryViewState {
       restoreOnNextEntry: false,
     }
   }
+}
+
+function loadLibraryPreferences(): LibraryPreferences {
+  try {
+    const rawValue = localStorage.getItem(LIBRARY_PREFERENCES_KEY)
+    const parsed = rawValue ? JSON.parse(rawValue) as Partial<LibraryPreferences> : {}
+    const parsedFilters = (parsed.allFilters ?? {}) as Partial<Record<AllFilterKey, boolean>>
+    return {
+      sortMode: isLibrarySortMode(parsed.sortMode) ? parsed.sortMode : 'name',
+      allFilters: {
+        localManga: parsedFilters.localManga !== false,
+        cloudManga: parsedFilters.cloudManga !== false,
+        novel: parsedFilters.novel !== false,
+      },
+    }
+  } catch {
+    return {
+      sortMode: 'name',
+      allFilters: {
+        localManga: true,
+        cloudManga: true,
+        novel: true,
+      },
+    }
+  }
+}
+
+function saveLibraryPreferences() {
+  localStorage.setItem(LIBRARY_PREFERENCES_KEY, JSON.stringify({
+    sortMode: sortMode.value,
+    allFilters: allFilters.value,
+  }))
 }
 
 function persistViewState() {
@@ -267,11 +422,170 @@ async function restoreLibraryView() {
   await nextTick()
   restoreScrollForTab()
 }
+
+function isNovel(manga: MangaItem) {
+  return manga.source === 'epub' || manga.source === 'txt' || /\.(epub|txt)$/i.test(manga.localPath)
+}
+
+function isCloudManga(manga: MangaItem) {
+  return manga.source === 'cloud'
+}
+
+function isLocalManga(manga: MangaItem) {
+  return !isCloudManga(manga) && !isNovel(manga)
+}
+
+function allFilterEnabledFor(manga: MangaItem) {
+  if (isNovel(manga)) return allFilters.value.novel
+  if (isCloudManga(manga)) return allFilters.value.cloudManga
+  if (isLocalManga(manga)) return allFilters.value.localManga
+  return true
+}
+
+function hasReadingProgress(manga: MangaItem) {
+  return Boolean(libraryService.getProgress(manga.id)?.updatedAt)
+}
+
+function progressUpdatedAt(manga: MangaItem) {
+  return libraryService.getProgress(manga.id)?.updatedAt ?? 0
+}
+
+function compareMangas(left: MangaItem, right: MangaItem) {
+  if (sortMode.value === 'recent') {
+    return progressUpdatedAt(right) - progressUpdatedAt(left)
+      || comparePinned(left, right)
+      || compareByName(left, right)
+  }
+
+  return comparePinned(left, right)
+    || (sortMode.value === 'addedAt' ? right.addedAt - left.addedAt : compareByName(left, right))
+    || right.updatedAt - left.updatedAt
+}
+
+function comparePinned(left: MangaItem, right: MangaItem) {
+  const leftPinned = Number(library.getShelfState(left.id).pinned)
+  const rightPinned = Number(library.getShelfState(right.id).pinned)
+  return rightPinned - leftPinned
+}
+
+function compareByName(left: MangaItem, right: MangaItem) {
+  return collator.compare(left.title, right.title)
+}
 </script>
 
 <style scoped>
 .library-hero {
-  margin-bottom: 22px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.library-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sort-control {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(153, 143, 131, 0.24);
+  border-radius: 12px;
+  padding: 0 10px;
+  color: rgba(209, 197, 183, 0.72);
+  background: rgba(21, 21, 21, 0.72);
+}
+
+.sort-control select {
+  border: 0;
+  color: var(--color-soft);
+  background: transparent;
+  outline: none;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sort-control option {
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.filter-control {
+  position: relative;
+}
+
+.filter-button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(153, 143, 131, 0.24);
+  border-radius: 12px;
+  padding: 0 12px;
+  color: rgba(209, 197, 183, 0.72);
+  background: rgba(21, 21, 21, 0.72);
+  cursor: pointer;
+}
+
+.filter-button.active {
+  border-color: rgba(225, 194, 150, 0.5);
+  color: var(--color-accent-bright);
+  background: rgba(184, 155, 114, 0.1);
+}
+
+.filter-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  z-index: 8;
+  width: 176px;
+  padding: 8px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
+}
+
+.filter-popover::before {
+  position: absolute;
+  right: 20px;
+  top: -6px;
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-surface);
+  content: "";
+  transform: rotate(45deg);
+}
+
+.filter-option {
+  position: relative;
+  display: grid;
+  min-height: 42px;
+  grid-template-columns: 20px 1fr 18px;
+  align-items: center;
+  gap: 8px;
+  border-radius: 10px;
+  padding: 0 10px;
+  color: rgba(209, 197, 183, 0.74);
+  cursor: pointer;
+}
+
+.filter-option:hover {
+  background: rgba(184, 155, 114, 0.08);
+}
+
+.filter-option input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+}
+
+.filter-option svg {
+  color: var(--color-accent-bright);
 }
 
 .library-tabs {
@@ -383,5 +697,30 @@ async function restoreLibraryView() {
 
 .empty-actions a {
   text-decoration: none;
+}
+
+@media (max-width: 520px) {
+  .library-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .library-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .sort-control {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .sort-control select {
+    width: 100%;
+  }
+
+  .filter-button span {
+    display: none;
+  }
 }
 </style>
