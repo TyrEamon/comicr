@@ -85,7 +85,6 @@ jobs:
           APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)/apksigner"
           if [ -f "$COMICR_KEYSTORE_PATH" ] \
             && [ -n "$COMICR_KEYSTORE_PASSWORD" ] \
-            && [ -n "$COMICR_KEY_ALIAS" ] \
             && [ -n "$COMICR_KEY_PASSWORD" ]; then
             ./gradlew assembleRelease
             RELEASE_APK="$(find app/build/outputs/apk/release -name '*.apk' ! -name '*unsigned*' | head -n 1)"

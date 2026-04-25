@@ -6,6 +6,30 @@ def envOrDefault = { name, fallback ->
     return value == null || value.trim().isEmpty() ? fallback : value.trim()
 }
 
+def resolveSigningKeyAlias = { storeFile, storePassword, storeType, preferredAlias ->
+    if (!storeFile || !storeFile.exists() || !storePassword) return preferredAlias
+
+    def keyStore = java.security.KeyStore.getInstance(storeType ?: java.security.KeyStore.getDefaultType())
+    storeFile.withInputStream { stream ->
+        keyStore.load(stream, storePassword.toCharArray())
+    }
+
+    if (preferredAlias && keyStore.containsAlias(preferredAlias)) {
+        return preferredAlias
+    }
+
+    def aliases = keyStore.aliases()
+    while (aliases.hasMoreElements()) {
+        def alias = aliases.nextElement()
+        if (keyStore.isKeyEntry(alias)) {
+            logger.lifecycle("Using signing key alias '${alias}' from ${storeFile.name}.")
+            return alias
+        }
+    }
+
+    return preferredAlias
+}
+
 def intEnvOrDefault = { name, fallback ->
     def value = System.getenv(name)
     if (value == null || value.trim().isEmpty()) return fallback
@@ -24,9 +48,10 @@ def releaseStorePassword = envOrDefault('COMICR_KEYSTORE_PASSWORD', '')
 def releaseKeyAlias = envOrDefault('COMICR_KEY_ALIAS', '')
 def releaseKeyPassword = envOrDefault('COMICR_KEY_PASSWORD', '')
 def releaseStoreType = envOrDefault('COMICR_KEYSTORE_TYPE', '')
+def resolvedReleaseKeyAlias = resolveSigningKeyAlias(releaseStoreFile, releaseStorePassword, releaseStoreType, releaseKeyAlias)
 def hasReleaseSigning = releaseStorePath
     && releaseStorePassword
-    && releaseKeyAlias
+    && resolvedReleaseKeyAlias
     && releaseKeyPassword
     && releaseStoreFile.exists()
 
@@ -54,7 +79,7 @@ android {
             release {
                 storeFile releaseStoreFile
                 storePassword releaseStorePassword
-                keyAlias releaseKeyAlias
+                keyAlias resolvedReleaseKeyAlias
                 keyPassword releaseKeyPassword
                 if (releaseStoreType) {
                     storeType releaseStoreType
