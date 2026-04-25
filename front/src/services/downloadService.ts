@@ -9,6 +9,10 @@ import type { DownloadTask } from './types'
 
 const TASKS_KEY = 'comics-app:downloads:v1'
 const ACTIVE_STATUSES = new Set(['pending', 'parsing', 'downloading'])
+const IMAGE_DOWNLOAD_ATTEMPTS = 3
+const IMAGE_RETRY_DELAY_MS = 800
+const MIN_DOWNLOAD_IMAGE_BYTES = 512
+const IMAGE_SIGNATURE_BYTES = 16
 let queueRunning = false
 
 function loadTasks() {
@@ -62,6 +66,114 @@ async function fetchBlob(page: DownloadPlanPage) {
     ...(page.headers ?? {}),
     ...(page.referer ? { Referer: page.referer } : {}),
   })
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+function normalizedMimeType(type?: string) {
+  return (type || '').split(';')[0]?.trim().toLowerCase() || ''
+}
+
+function detectImageMimeType(bytes: Uint8Array) {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (
+    bytes.length >= 8
+    && bytes[0] === 0x89
+    && bytes[1] === 0x50
+    && bytes[2] === 0x4e
+    && bytes[3] === 0x47
+    && bytes[4] === 0x0d
+    && bytes[5] === 0x0a
+    && bytes[6] === 0x1a
+    && bytes[7] === 0x0a
+  ) {
+    return 'image/png'
+  }
+  if (
+    bytes.length >= 6
+    && bytes[0] === 0x47
+    && bytes[1] === 0x49
+    && bytes[2] === 0x46
+    && bytes[3] === 0x38
+    && (bytes[4] === 0x37 || bytes[4] === 0x39)
+    && bytes[5] === 0x61
+  ) {
+    return 'image/gif'
+  }
+  if (
+    bytes.length >= 12
+    && bytes[0] === 0x52
+    && bytes[1] === 0x49
+    && bytes[2] === 0x46
+    && bytes[3] === 0x46
+    && bytes[8] === 0x57
+    && bytes[9] === 0x45
+    && bytes[10] === 0x42
+    && bytes[11] === 0x50
+  ) {
+    return 'image/webp'
+  }
+  if (bytes.length >= 2 && bytes[0] === 0x42 && bytes[1] === 0x4d) {
+    return 'image/bmp'
+  }
+  if (
+    bytes.length >= 12
+    && bytes[4] === 0x66
+    && bytes[5] === 0x74
+    && bytes[6] === 0x79
+    && bytes[7] === 0x70
+    && bytes[8] === 0x61
+    && bytes[9] === 0x76
+    && bytes[10] === 0x69
+    && (bytes[11] === 0x66 || bytes[11] === 0x73)
+  ) {
+    return 'image/avif'
+  }
+  return ''
+}
+
+async function validateImageBlob(page: DownloadPlanPage, blob: Blob) {
+  if (blob.size < MIN_DOWNLOAD_IMAGE_BYTES) {
+    throw new Error(`图片响应过小：${blob.size} B`)
+  }
+
+  const responseType = normalizedMimeType(blob.type)
+  if (responseType && !responseType.startsWith('image/') && responseType !== 'application/octet-stream') {
+    throw new Error(`响应类型不是图片：${blob.type}`)
+  }
+
+  const bytes = new Uint8Array(await blob.slice(0, IMAGE_SIGNATURE_BYTES).arrayBuffer())
+  const detectedType = detectImageMimeType(bytes)
+  if (!detectedType) {
+    throw new Error(`响应内容不是可识别图片：${blob.size} B`)
+  }
+
+  return {
+    blob,
+    type: page.type || (responseType.startsWith('image/') ? responseType : detectedType),
+  }
+}
+
+async function fetchValidImage(page: DownloadPlanPage) {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= IMAGE_DOWNLOAD_ATTEMPTS; attempt += 1) {
+    try {
+      const blob = await fetchBlob(page)
+      return await validateImageBlob(page, blob)
+    } catch (error) {
+      lastError = error
+      if (attempt < IMAGE_DOWNLOAD_ATTEMPTS) {
+        await delay(IMAGE_RETRY_DELAY_MS * attempt)
+      }
+    }
+  }
+  throw lastError
 }
 
 export const downloadService = {
@@ -232,6 +344,7 @@ export const downloadService = {
       const images: Array<{ name: string; type?: string; blob: Blob }> = []
       const imageRefs: Array<{ name: string; type?: string; uri: string }> = []
       let outputPath = downloadTargetService.getTargetLabel()
+      let failedCount = 0
       for (const [index, page] of plan.pages.entries()) {
         const latest = loadTasks().find((item) => item.id === task.id)
         if (latest?.status === 'cancelled') {
@@ -239,29 +352,34 @@ export const downloadService = {
         }
 
         try {
-          const blob = await fetchBlob(page)
+          const { blob, type } = await fetchValidImage(page)
           const name = page.name
           if (downloadTargetService.isAvailable()) {
-            const writtenImage = await downloadTargetService.writeImage(plan.title, name, page.type || blob.type, blob)
+            const writtenImage = await downloadTargetService.writeImage(plan.title, name, type, blob)
             outputPath = writtenImage.folderUri || outputPath
             imageRefs.push({
               name: writtenImage.name || name,
-              type: writtenImage.type || page.type || blob.type,
+              type: writtenImage.type || type,
               uri: writtenImage.uri,
             })
           } else {
             images.push({
               name,
-              type: page.type || blob.type,
+              type,
               blob,
             })
           }
         } catch (error) {
+          failedCount += 1
           console.warn(`跳过下载失败的图片: ${page.url}`, error)
         }
 
         currentTask = { ...currentTask, current: index + 1, outputPath, updatedAt: Date.now() }
         setTask(currentTask)
+      }
+
+      if (failedCount > 0) {
+        throw new Error(`有 ${failedCount}/${plan.pages.length} 张图片在重试后仍下载失败，已停止导入`)
       }
 
       if (images.length === 0 && imageRefs.length === 0) {

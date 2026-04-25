@@ -61,8 +61,8 @@
 
       <section class="chapters-section">
         <div class="section-head">
-          <h2>页面</h2>
-          <span>共 {{ manga?.imageCount ?? 0 }} 页</span>
+          <h2>{{ chapters.length > 0 ? '目录' : '页面' }}</h2>
+          <span>{{ chapters.length > 0 ? `共 ${chapters.length} 章` : `共 ${manga?.imageCount ?? 0} 页` }}</span>
         </div>
         <button class="chapter-card surface-card" type="button" @click="readNow">
           <div>
@@ -71,6 +71,24 @@
           </div>
           <ChevronRight :size="22" />
         </button>
+
+        <div v-if="chapters.length > 0" class="chapter-list">
+          <button
+            v-for="chapter in chapters"
+            :key="chapter.id"
+            class="chapter-card chapter-row surface-card"
+            :class="{ active: isCurrentChapter(chapter) }"
+            type="button"
+            @click="readChapter(chapter)"
+          >
+            <span>{{ chapter.index + 1 }}</span>
+            <div>
+              <strong>{{ chapter.title }}</strong>
+              <p>第 {{ chapter.pageIndex + 1 }} 页开始</p>
+            </div>
+            <ChevronRight :size="20" />
+          </button>
+        </div>
       </section>
     </main>
 
@@ -109,7 +127,7 @@ import { cloudDownloadService } from '@/services/cloudDownloadService'
 import { cloudService } from '@/services/cloudService'
 import { downloadService } from '@/services/downloadService'
 import { libraryService } from '@/services/libraryService'
-import type { MangaItem } from '@/services/types'
+import type { MangaItem, ReaderChapter } from '@/services/types'
 import { useLibraryStore } from '@/stores/libraryStore'
 import { ArrowLeft, BookOpen, Bookmark, Check, ChevronRight, Clock3, Download as DownloadIcon, Trash2 } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
@@ -127,6 +145,7 @@ const cloudDownloadQueued = ref(false)
 const showDeleteConfirm = ref(false)
 const deleteBusy = ref(false)
 const deleteMessage = ref('')
+const chapters = ref<ReaderChapter[]>([])
 
 const mangaId = computed(() => String(route.params.id))
 const shelf = computed(() => library.getShelfState(mangaId.value))
@@ -152,6 +171,8 @@ const deleteDescription = computed(() => {
       return '只会删除书架索引、阅读进度和收藏状态，不会删除原文件夹里的图片。'
     case 'epub':
       return '只会删除书架索引、阅读进度和收藏状态，不会删除你导入前的 EPUB 文件。'
+    case 'txt':
+      return '只会删除书架索引、阅读进度和收藏状态，不会删除你导入前的 TXT 文件。'
     case 'cloud':
       return '只会从当前云盘书架索引移除，不会删除 WebDAV 里的文件。刷新云盘列表后可能会重新出现。'
     default:
@@ -187,6 +208,8 @@ const sourceLabel = computed(() => {
       return '压缩包'
     case 'epub':
       return 'EPUB'
+    case 'txt':
+      return 'TXT'
     case 'sample':
       return '示例'
     default:
@@ -200,12 +223,24 @@ onMounted(async () => {
   }
   manga.value = await libraryService.getManga(mangaId.value) ?? null
   coverUrl.value = await libraryService.getCoverUrl(mangaId.value)
+  chapters.value = await libraryService.getReaderChapters(mangaId.value)
   refreshDownloadState()
 })
 
 function readNow() {
   if (!manga.value) return
   router.push({ name: 'reader', params: { id: manga.value.id } })
+}
+
+function readChapter(chapter: ReaderChapter) {
+  if (!manga.value) return
+  router.push({ name: 'reader', params: { id: manga.value.id }, query: { page: String(chapter.pageIndex) } })
+}
+
+function isCurrentChapter(chapter: ReaderChapter) {
+  const lastIndex = progress.value?.lastIndex ?? -1
+  return lastIndex >= chapter.pageIndex
+    && !chapters.value.some((nextChapter) => nextChapter.pageIndex > chapter.pageIndex && nextChapter.pageIndex <= lastIndex)
 }
 
 function toggleFavorite() {
@@ -449,6 +484,37 @@ async function downloadCloudManga() {
 .chapter-card p {
   margin: 6px 0 0;
   color: rgba(209, 197, 183, 0.62);
+}
+
+.chapter-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.chapter-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 24px;
+  gap: 12px;
+  min-height: 66px;
+}
+
+.chapter-row span {
+  color: var(--color-accent);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chapter-row strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chapter-row.active {
+  border: 1px solid rgba(225, 194, 150, 0.44);
+  background: rgba(184, 155, 114, 0.12);
 }
 
 .delete-overlay {

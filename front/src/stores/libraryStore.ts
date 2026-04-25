@@ -103,6 +103,12 @@ export const useLibraryStore = defineStore('library', () => {
     return manga
   }
 
+  async function importTextFile(file: File, title?: string, refreshAfter = true) {
+    const manga = await libraryService.importTextFile(file, title)
+    if (refreshAfter) await refresh()
+    return manga
+  }
+
   async function importImageBlobs(
     title: string,
     images: Array<{ name: string; type?: string; blob: Blob }>,
@@ -172,6 +178,7 @@ export const useLibraryStore = defineStore('library', () => {
     importArchive,
     importImageFiles,
     importEpubFile,
+    importTextFile,
     importImageBlobs,
     importImageRefs,
     importArchiveRefs,

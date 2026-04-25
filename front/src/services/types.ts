@@ -1,4 +1,13 @@
-export type MangaSource = 'archive' | 'download' | 'cloud' | 'folder' | 'epub' | 'sample'
+export type MangaSource = 'archive' | 'download' | 'cloud' | 'folder' | 'epub' | 'txt' | 'sample'
+export type ReaderAssetKind = 'image' | 'text'
+
+export interface ReaderChapter {
+  id: string
+  index: number
+  title: string
+  pageIndex: number
+  href?: string
+}
 
 export interface MangaItem {
   id: string
@@ -18,6 +27,11 @@ export interface MangaImageRecord {
   index: number
   name: string
   type: string
+  kind?: ReaderAssetKind
+  html?: string
+  chapterTitle?: string
+  chapterHref?: string
+  chapterIndex?: number
   blob?: Blob
   uri?: string
   archiveUri?: string
@@ -29,6 +43,11 @@ export interface ImageAsset {
   index: number
   name: string
   type: string
+  kind?: ReaderAssetKind
+  html?: string
+  chapterTitle?: string
+  chapterHref?: string
+  chapterIndex?: number
   src: string
   uri?: string
   archiveUri?: string

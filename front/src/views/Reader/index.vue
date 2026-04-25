@@ -13,21 +13,37 @@
       <div
         v-if="readerMode === 'gallery'"
         class="reader-stage gallery-stage"
+        :class="{ 'text-stage': currentImage?.kind === 'text', 'page-turning': galleryPageTransitionEnabled }"
         @click.stop="handleGalleryTap"
         @touchstart.passive="handleGalleryTouchStart"
         @touchend.passive="handleGalleryTouchEnd"
       >
-        <img
-          v-if="currentImage?.src"
-          class="reader-image"
-          :class="{ 'fit-width': fitMode === 'width' }"
-          :src="currentImage.src"
-          :alt="currentImage.name"
-          :style="imageStyle"
-          @click.stop="handleGalleryTap"
-          @error="handleImageError(currentIndex)"
-        />
-        <div v-else class="reader-image-placeholder" @click.stop="handleGalleryTap">正在加载当前页...</div>
+        <Transition :name="galleryTransitionName" :css="galleryPageTransitionEnabled">
+          <div
+            :key="currentImage?.id || currentIndex"
+            class="gallery-page-frame"
+            :class="{ 'text-page-frame': currentImage?.kind === 'text' }"
+          >
+            <article
+              v-if="currentImage?.kind === 'text'"
+              class="reader-text-page gallery-text-page"
+              :style="textPageStyle"
+              @click.stop="toggleControls()"
+              v-html="currentImage.html"
+            />
+            <img
+              v-else-if="currentImage?.src"
+              class="reader-image"
+              :class="{ 'fit-width': fitMode === 'width' }"
+              :src="currentImage.src"
+              :alt="currentImage.name"
+              :style="imageStyle"
+              @click.stop="handleGalleryTap"
+              @error="handleImageError(currentIndex)"
+            />
+            <div v-else class="reader-image-placeholder" @click.stop="handleGalleryTap">正在加载当前页...</div>
+          </div>
+        </Transition>
       </div>
 
       <div
@@ -44,8 +60,15 @@
           class="continuous-frame"
           :class="{ 'fit-width-frame': fitMode === 'width' }"
         >
+          <article
+            v-if="image.kind === 'text'"
+            class="reader-text-page continuous-text-page"
+            :style="textPageStyle"
+            @click.stop="toggleControls()"
+            v-html="image.html"
+          />
           <img
-            v-if="image.src"
+            v-else-if="image.src"
             class="reader-image continuous-image"
             :class="{ 'fit-width': fitMode === 'width' }"
             :src="image.src"
@@ -63,9 +86,10 @@
           <button class="reader-icon" type="button" aria-label="返回" @click="router.back()">
             <ArrowLeft :size="24" />
           </button>
-          <div>
-            <span>{{ isCloudReader ? '云盘' : '书库' }}</span>
+          <div class="reader-title-stack">
+            <span>{{ topContextLabel }}</span>
             <strong>{{ manga?.title || '阅读器' }}</strong>
+            <small v-if="currentChapter">{{ currentChapter.title }}</small>
           </div>
           <button class="reader-icon" type="button" aria-label="收藏" @click="toggleFavorite">
             <Bookmark :size="22" :fill="favorite ? 'currentColor' : 'none'" />
@@ -133,8 +157,9 @@
             <button class="reader-tool" :class="{ active: favorite }" type="button" aria-label="收藏" @click="toggleFavorite">
               <Bookmark :size="24" :fill="favorite ? 'currentColor' : 'none'" />
             </button>
-            <button class="reader-tool" :class="{ active: pageListVisible }" type="button" aria-label="页面列表" @click="togglePageList">
-              <PanelTop :size="24" />
+            <button class="reader-tool" :class="{ active: navigationPanelVisible }" type="button" :aria-label="navigationPanelLabel" @click="toggleNavigationPanel">
+              <ListTree v-if="hasChapterList" :size="24" />
+              <PanelTop v-else :size="24" />
             </button>
             <button class="reader-tool" type="button" aria-label="重新加载当前页" @click="reloadCurrentPage">
               <RefreshCw :size="23" />
@@ -154,6 +179,50 @@
               <Settings :size="24" />
             </button>
           </div>
+        </div>
+      </Transition>
+
+      <Transition name="reader-sheet">
+        <div v-if="chapterSheetVisible" class="reader-sheet-backdrop" @click.stop="closeChapterSheet()">
+          <section
+            class="reader-chapter-sheet"
+            :style="chapterSheetStyle"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chapter-sheet-title"
+            @click.stop
+            @touchstart.passive="handleChapterSheetTouchStart"
+            @touchmove.passive="handleChapterSheetTouchMove"
+            @touchend.passive="handleChapterSheetTouchEnd"
+          >
+            <button class="reader-sheet-handle" type="button" aria-label="关闭章节目录" @click="closeChapterSheet()">
+              <span />
+            </button>
+            <header class="reader-chapter-sheet-header">
+              <div>
+                <p class="drawer-label">目录</p>
+                <h2 id="chapter-sheet-title">章节</h2>
+              </div>
+              <button class="reader-icon reader-drawer-close" type="button" aria-label="关闭章节目录" @click="closeChapterSheet()">
+                <X :size="20" />
+              </button>
+            </header>
+
+            <div class="reader-chapter-sheet-list">
+              <button
+                v-for="chapter in readerChapters"
+                :key="chapter.id"
+                class="reader-chapter-item"
+                :class="{ active: chapter.id === currentChapter?.id }"
+                type="button"
+                @click="goToChapter(chapter)"
+              >
+                <span>{{ chapter.index + 1 }}</span>
+                <strong>{{ chapter.title }}</strong>
+                <em>第 {{ chapter.pageIndex + 1 }} 页</em>
+              </button>
+            </div>
+          </section>
         </div>
       </Transition>
 
@@ -187,6 +256,79 @@
             </section>
 
             <section class="reader-settings-section">
+              <p class="drawer-section-label">翻页</p>
+              <button class="reader-toggle-option" type="button" :class="{ active: pageTurnAnimation }" @click="togglePageTurnAnimation">
+                <div>
+                  <strong>翻页动画</strong>
+                  <span>画廊模式左右滑入滑出，连续模式不受影响</span>
+                </div>
+                <span class="reader-switch" :class="{ active: pageTurnAnimation }" aria-hidden="true">
+                  <i />
+                </span>
+              </button>
+            </section>
+
+            <section v-if="hasTextPages" class="reader-settings-section">
+              <p class="drawer-section-label">小说排版</p>
+              <label class="reader-range-setting">
+                <span>
+                  <strong>字号</strong>
+                  <em>{{ textFontSize }}px</em>
+                </span>
+                <input
+                  v-model.number="textFontSize"
+                  type="range"
+                  :min="readerTextPreferenceLimits.fontSize.min"
+                  :max="readerTextPreferenceLimits.fontSize.max"
+                  :step="readerTextPreferenceLimits.fontSize.step"
+                  aria-label="小说字号"
+                />
+              </label>
+              <label class="reader-range-setting">
+                <span>
+                  <strong>行距</strong>
+                  <em>{{ textLineHeight.toFixed(2) }}</em>
+                </span>
+                <input
+                  v-model.number="textLineHeight"
+                  type="range"
+                  :min="readerTextPreferenceLimits.lineHeight.min"
+                  :max="readerTextPreferenceLimits.lineHeight.max"
+                  :step="readerTextPreferenceLimits.lineHeight.step"
+                  aria-label="小说行距"
+                />
+              </label>
+              <label class="reader-range-setting">
+                <span>
+                  <strong>首行缩进</strong>
+                  <em>{{ textIndentEm.toFixed(1) }}em</em>
+                </span>
+                <input
+                  v-model.number="textIndentEm"
+                  type="range"
+                  :min="readerTextPreferenceLimits.indentEm.min"
+                  :max="readerTextPreferenceLimits.indentEm.max"
+                  :step="readerTextPreferenceLimits.indentEm.step"
+                  aria-label="小说首行缩进"
+                />
+              </label>
+              <label class="reader-range-setting">
+                <span>
+                  <strong>段距</strong>
+                  <em>{{ textParagraphSpacingEm.toFixed(1) }}em</em>
+                </span>
+                <input
+                  v-model.number="textParagraphSpacingEm"
+                  type="range"
+                  :min="readerTextPreferenceLimits.paragraphSpacingEm.min"
+                  :max="readerTextPreferenceLimits.paragraphSpacingEm.max"
+                  :step="readerTextPreferenceLimits.paragraphSpacingEm.step"
+                  aria-label="小说段距"
+                />
+              </label>
+            </section>
+
+            <section class="reader-settings-section">
               <p class="drawer-section-label">页面适配</p>
               <div class="reader-settings-segment">
                 <button class="setting-chip drawer-chip" :class="{ active: fitMode === 'contain' }" type="button" @click="setFitMode('contain')">适应屏幕</button>
@@ -205,9 +347,9 @@ import { cloudService } from '@/services/cloudService'
 import { cloudDownloadService } from '@/services/cloudDownloadService'
 import { downloadService } from '@/services/downloadService'
 import { libraryService } from '@/services/libraryService'
-import { readerService, type ReaderFitMode, type ReaderGalleryDirection, type ReaderMode } from '@/services/readerService'
-import type { ImageAsset, MangaItem } from '@/services/types'
-import { ArrowLeft, Bookmark, Check, ChevronsLeft, ChevronsRight, Download as DownloadIcon, PanelTop, RefreshCw, Settings, Sun, X } from 'lucide-vue-next'
+import { readerService, readerTextPreferenceLimits, type ReaderFitMode, type ReaderGalleryDirection, type ReaderMode } from '@/services/readerService'
+import type { ImageAsset, MangaItem, ReaderChapter } from '@/services/types'
+import { ArrowLeft, Bookmark, Check, ChevronsLeft, ChevronsRight, Download as DownloadIcon, ListTree, PanelTop, RefreshCw, Settings, Sun, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -215,6 +357,15 @@ import { useRoute, useRouter } from 'vue-router'
 const route = useRoute()
 const router = useRouter()
 const preferences = readerService.getPreferences()
+type PageTurnDirection = 'next' | 'previous'
+interface PageNavigationOptions {
+  animate?: boolean
+  behavior?: ScrollBehavior
+}
+interface ChapterSheetCloseOptions {
+  syncHistory?: boolean
+  scheduleControls?: boolean
+}
 
 const manga = ref<MangaItem | null>(null)
 const images = ref<ImageAsset[]>([])
@@ -225,6 +376,7 @@ const favorite = ref(false)
 const brightness = ref(100)
 const brightnessVisible = ref(false)
 const pageListVisible = ref(false)
+const chapterSheetVisible = ref(false)
 const readerSettingsVisible = ref(false)
 const downloadBusy = ref(false)
 const downloadMessage = ref('')
@@ -233,30 +385,126 @@ const cloudDownloadQueued = ref(false)
 const readerMode = ref<ReaderMode>(preferences.mode)
 const fitMode = ref<ReaderFitMode>(preferences.fitMode)
 const galleryDirection = ref<ReaderGalleryDirection>(preferences.galleryDirection)
+const pageTurnAnimation = ref(preferences.pageTurnAnimation)
+const textFontSize = ref(preferences.textFontSize)
+const textLineHeight = ref(preferences.textLineHeight)
+const textIndentEm = ref(preferences.textIndentEm)
+const textParagraphSpacingEm = ref(preferences.textParagraphSpacingEm)
+const pageTurnDirection = ref<PageTurnDirection>('next')
+const reducedMotion = ref(false)
 const continuousContainer = ref<HTMLElement | null>(null)
 const continuousFrames = ref<HTMLElement[]>([])
 const loadError = ref('')
 const touchStartX = ref(0)
 const touchStartY = ref(0)
+const chapterSheetTouchStartY = ref(0)
+const chapterSheetTouchOffset = ref(0)
+const chapterSheetDragging = ref(false)
 const ignoreNextTap = ref(false)
 
 let hideTimer: number | undefined
 let scrollSyncFrame: number | undefined
 let lastTapAt = 0
+let reducedMotionQuery: MediaQueryList | undefined
+let chapterSheetHistoryActive = false
 
 const mangaId = computed(() => String(route.params.id))
 const isCloudReader = computed(() => cloudService.isWebDavReaderId(mangaId.value))
 const currentImage = computed(() => images.value[currentIndex.value] ?? null)
 const isContinuousMode = computed(() => readerMode.value === 'continuous')
 const lastImageIndex = computed(() => Math.max(0, images.value.length - 1))
+const hasTextPages = computed(() => images.value.some((image) => image.kind === 'text'))
 const imageStyle = computed(() => ({ filter: `brightness(${brightness.value}%)` }))
+const textPageStyle = computed(() => ({
+  ...imageStyle.value,
+  '--reader-text-font-size': `${textFontSize.value}px`,
+  '--reader-text-line-height': String(textLineHeight.value),
+  '--reader-text-indent': `${textIndentEm.value}em`,
+  '--reader-text-paragraph-spacing': `${textParagraphSpacingEm.value}em`,
+}))
+const galleryPageTransitionEnabled = computed(() => pageTurnAnimation.value && !reducedMotion.value && readerMode.value === 'gallery')
+const galleryTransitionName = computed(() => galleryPageTransitionEnabled.value ? `reader-page-slide-${pageTurnDirection.value}` : '')
+const chapterSheetStyle = computed(() => (
+  chapterSheetTouchOffset.value > 0
+    ? { transform: `translate3d(0, ${chapterSheetTouchOffset.value}px, 0)` }
+    : {}
+))
+const readerChapters = computed<ReaderChapter[]>(() => {
+  const chapters: ReaderChapter[] = []
+  const seen = new Set<string>()
+
+  images.value.forEach((image, index) => {
+    const title = image.chapterTitle?.trim() || (image.kind === 'text' ? image.name.trim() : '')
+    if (!title) return
+
+    const key = image.chapterHref
+      ? `href:${image.chapterHref}`
+      : image.chapterIndex !== undefined
+        ? `index:${image.chapterIndex}`
+        : `page:${index}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    chapters.push({
+      id: key,
+      index: image.chapterIndex ?? chapters.length,
+      title,
+      pageIndex: index,
+      href: image.chapterHref,
+    })
+  })
+
+  return chapters.sort((left, right) => left.pageIndex - right.pageIndex)
+})
+const hasChapterList = computed(() => readerChapters.value.length > 0)
+const currentChapter = computed(() => {
+  let matched: ReaderChapter | null = null
+  for (const chapter of readerChapters.value) {
+    if (chapter.pageIndex > currentIndex.value) break
+    matched = chapter
+  }
+  return matched
+})
+const navigationPanelLabel = computed(() => hasChapterList.value ? '章节目录' : '页面列表')
+const navigationPanelVisible = computed(() => hasChapterList.value ? chapterSheetVisible.value : pageListVisible.value)
+const topContextLabel = computed(() => {
+  if (currentChapter.value) return `第 ${currentChapter.value.index + 1} 章`
+  return isCloudReader.value ? '云盘' : '书库'
+})
 const cloudDownloadButtonLabel = computed(() => {
   if (cloudDownloaded.value) return '已下载当前漫画'
   if (cloudDownloadQueued.value) return '当前漫画已在下载队列'
   return '下载当前漫画'
 })
 
+function syncReducedMotion(event?: MediaQueryListEvent) {
+  reducedMotion.value = event?.matches ?? Boolean(reducedMotionQuery?.matches)
+}
+
+function handleReaderKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  if (chapterSheetVisible.value) {
+    closeChapterSheet()
+    return
+  }
+  if (readerSettingsVisible.value) {
+    closeReaderSettings()
+  }
+}
+
+function handleReaderPopState() {
+  if (!chapterSheetVisible.value) return
+  chapterSheetHistoryActive = false
+  closeChapterSheet({ syncHistory: false })
+}
+
 onMounted(async () => {
+  reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+  syncReducedMotion()
+  reducedMotionQuery.addEventListener('change', syncReducedMotion)
+  window.addEventListener('keydown', handleReaderKeydown)
+  window.addEventListener('popstate', handleReaderPopState)
+
   loading.value = true
   loadError.value = ''
   continuousFrames.value = []
@@ -287,7 +535,11 @@ onMounted(async () => {
 
     favorite.value = libraryService.getShelfState(mangaId.value).favorite
     const progress = libraryService.getProgress(mangaId.value)
-    currentIndex.value = Math.min(progress?.lastIndex ?? 0, lastImageIndex.value)
+    const queryPage = Number(route.query.page)
+    currentIndex.value = Math.min(
+      Number.isFinite(queryPage) ? Math.max(0, queryPage) : progress?.lastIndex ?? 0,
+      lastImageIndex.value,
+    )
     await ensureImagesAround(currentIndex.value)
   } catch (error) {
     loadError.value = error instanceof Error ? error.message : '阅读器加载失败'
@@ -306,6 +558,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.clearTimeout(hideTimer)
+  reducedMotionQuery?.removeEventListener('change', syncReducedMotion)
+  window.removeEventListener('keydown', handleReaderKeydown)
+  window.removeEventListener('popstate', handleReaderPopState)
+  chapterSheetHistoryActive = false
   if (scrollSyncFrame) {
     window.cancelAnimationFrame(scrollSyncFrame)
   }
@@ -317,7 +573,7 @@ onUnmounted(() => {
     }
   } else {
     for (const image of images.value) {
-      if (image.src.startsWith('blob:')) {
+      if (image.kind !== 'text' && image.src.startsWith('blob:')) {
         URL.revokeObjectURL(image.src)
       }
     }
@@ -347,6 +603,19 @@ watch(galleryDirection, (direction) => {
   readerService.updatePreferences({ galleryDirection: direction })
 })
 
+watch(pageTurnAnimation, (enabled) => {
+  readerService.updatePreferences({ pageTurnAnimation: enabled })
+})
+
+watch([textFontSize, textLineHeight, textIndentEm, textParagraphSpacingEm], ([fontSize, lineHeight, indentEm, paragraphSpacingEm]) => {
+  readerService.updatePreferences({
+    textFontSize: fontSize,
+    textLineHeight: lineHeight,
+    textIndentEm: indentEm,
+    textParagraphSpacingEm: paragraphSpacingEm,
+  })
+})
+
 function toggleControls(skipDoubleTap = false) {
   if (!skipDoubleTap && handleDoubleTap()) return
 
@@ -355,7 +624,7 @@ function toggleControls(skipDoubleTap = false) {
     return
   }
 
-  if (readerSettingsVisible.value) return
+  if (readerSettingsVisible.value || chapterSheetVisible.value) return
 
   controlsVisible.value = !controlsVisible.value
   if (controlsVisible.value) {
@@ -369,7 +638,7 @@ function toggleControls(skipDoubleTap = false) {
 
 function scheduleHide() {
   window.clearTimeout(hideTimer)
-  if (readerSettingsVisible.value) return
+  if (readerSettingsVisible.value || chapterSheetVisible.value) return
 
   hideTimer = window.setTimeout(() => {
     controlsVisible.value = false
@@ -379,19 +648,19 @@ function scheduleHide() {
 }
 
 function previousPage() {
-  goToPage(currentIndex.value - 1)
+  goToPage(currentIndex.value - 1, { animate: true })
 }
 
 function nextPage() {
-  goToPage(currentIndex.value + 1)
+  goToPage(currentIndex.value + 1, { animate: true })
 }
 
 function jumpToStart() {
-  goToPage(0)
+  goToPage(0, { animate: false })
 }
 
 function jumpToEnd() {
-  goToPage(lastImageIndex.value)
+  goToPage(lastImageIndex.value, { animate: false })
 }
 
 function toggleFavorite() {
@@ -403,6 +672,7 @@ function toggleFavorite() {
 function toggleBrightness() {
   brightnessVisible.value = !brightnessVisible.value
   pageListVisible.value = false
+  closeChapterSheet({ syncHistory: true, scheduleControls: false })
   readerSettingsVisible.value = false
   controlsVisible.value = true
   scheduleHide()
@@ -411,14 +681,32 @@ function toggleBrightness() {
 function togglePageList() {
   pageListVisible.value = !pageListVisible.value
   brightnessVisible.value = false
+  closeChapterSheet({ syncHistory: true, scheduleControls: false })
   readerSettingsVisible.value = false
   controlsVisible.value = true
   scheduleHide()
 }
 
+function toggleNavigationPanel() {
+  if (hasChapterList.value) {
+    if (chapterSheetVisible.value) {
+      closeChapterSheet()
+    } else {
+      openChapterSheet()
+    }
+    return
+  }
+
+  togglePageList()
+}
+
 function reloadCurrentPage() {
   const image = images.value[currentIndex.value]
   if (!image) return
+  if (image.kind === 'text') {
+    scheduleHide()
+    return
+  }
 
   if (isCloudReader.value) {
     images.value[currentIndex.value] = {
@@ -438,6 +726,7 @@ function reloadCurrentPage() {
   controlsVisible.value = true
   brightnessVisible.value = false
   pageListVisible.value = false
+  closeChapterSheet({ syncHistory: true, scheduleControls: false })
   readerSettingsVisible.value = false
   scheduleHide()
 }
@@ -450,6 +739,7 @@ async function downloadCurrentCloudManga() {
   controlsVisible.value = true
   brightnessVisible.value = false
   pageListVisible.value = false
+  closeChapterSheet({ syncHistory: true, scheduleControls: false })
   readerSettingsVisible.value = false
   window.clearTimeout(hideTimer)
 
@@ -469,6 +759,7 @@ function toggleReaderSettings() {
   readerSettingsVisible.value = !readerSettingsVisible.value
   brightnessVisible.value = false
   pageListVisible.value = false
+  closeChapterSheet({ syncHistory: true, scheduleControls: false })
   controlsVisible.value = true
   window.clearTimeout(hideTimer)
 
@@ -482,15 +773,113 @@ function closeReaderSettings() {
   scheduleHide()
 }
 
-function goToPage(index: number) {
+function openChapterSheet() {
+  if (!hasChapterList.value) return
+
+  chapterSheetVisible.value = true
+  chapterSheetTouchOffset.value = 0
+  chapterSheetDragging.value = false
+  brightnessVisible.value = false
+  pageListVisible.value = false
+  readerSettingsVisible.value = false
+  controlsVisible.value = true
+  window.clearTimeout(hideTimer)
+
+  if (!chapterSheetHistoryActive) {
+    window.history.pushState({ readerChapterSheet: true }, '', window.location.href)
+    chapterSheetHistoryActive = true
+  }
+}
+
+function closeChapterSheet(options: ChapterSheetCloseOptions = {}) {
+  const wasVisible = chapterSheetVisible.value
+  chapterSheetVisible.value = false
+  chapterSheetTouchOffset.value = 0
+  chapterSheetDragging.value = false
+
+  if (options.syncHistory !== false && chapterSheetHistoryActive) {
+    chapterSheetHistoryActive = false
+    window.history.back()
+  }
+
+  if (wasVisible && options.scheduleControls !== false) {
+    scheduleHide()
+  }
+}
+
+function shouldStartChapterSheetDrag(event: TouchEvent) {
+  const target = event.target
+  return target instanceof HTMLElement && !target.closest('.reader-chapter-sheet-list')
+}
+
+function handleChapterSheetTouchStart(event: TouchEvent) {
+  const touch = event.changedTouches[0]
+  if (!touch) return
+
+  chapterSheetDragging.value = shouldStartChapterSheetDrag(event)
+  chapterSheetTouchStartY.value = touch.clientY
+  chapterSheetTouchOffset.value = 0
+}
+
+function handleChapterSheetTouchMove(event: TouchEvent) {
+  if (!chapterSheetDragging.value) return
+
+  const touch = event.changedTouches[0]
+  if (!touch) return
+
+  chapterSheetTouchOffset.value = Math.max(0, touch.clientY - chapterSheetTouchStartY.value)
+}
+
+function handleChapterSheetTouchEnd() {
+  if (!chapterSheetDragging.value) return
+
+  if (chapterSheetTouchOffset.value > 92) {
+    closeChapterSheet()
+    return
+  }
+
+  chapterSheetTouchOffset.value = 0
+  chapterSheetDragging.value = false
+}
+
+function togglePageTurnAnimation() {
+  pageTurnAnimation.value = !pageTurnAnimation.value
+  controlsVisible.value = true
+  window.clearTimeout(hideTimer)
+}
+
+function pageTurnDirectionFor(nextIndex: number): PageTurnDirection {
+  const movingForward = nextIndex > currentIndex.value
+  const visuallyNext = galleryDirection.value === 'right-next' ? movingForward : !movingForward
+  return visuallyNext ? 'next' : 'previous'
+}
+
+function goToPage(index: number, options: PageNavigationOptions = {}) {
   const nextIndex = Math.min(lastImageIndex.value, Math.max(0, index))
+  const shouldAnimate = Boolean(
+    options.animate
+    && galleryPageTransitionEnabled.value
+    && readerMode.value === 'gallery'
+    && Math.abs(nextIndex - currentIndex.value) === 1,
+  )
+
+  if (shouldAnimate) {
+    pageTurnDirection.value = pageTurnDirectionFor(nextIndex)
+  }
+
   currentIndex.value = nextIndex
 
   if (isContinuousMode.value) {
-    void scrollToCurrentIndex('smooth')
+    void scrollToCurrentIndex(options.behavior ?? 'smooth')
   }
 
   scheduleHide()
+}
+
+function goToChapter(chapter: ReaderChapter) {
+  pageListVisible.value = false
+  closeChapterSheet()
+  goToPage(chapter.pageIndex)
 }
 
 async function ensureImagesAround(index: number) {
@@ -506,6 +895,7 @@ function pruneLoadedLocalImages(index: number) {
 
   const keepDistance = isContinuousMode.value ? 6 : 3
   images.value = images.value.map((image, imageIndex) => {
+    if (image.kind === 'text') return image
     if (Math.abs(imageIndex - index) <= keepDistance) return image
     if (!image.src.startsWith('blob:')) return image
     if (!image.uri && !image.archiveUri) return image
@@ -521,6 +911,7 @@ function pruneLoadedLocalImages(index: number) {
 async function ensureImageLoaded(index: number) {
   const image = images.value[index]
   if (!image || image.src) return
+  if (image.kind === 'text') return
 
   const src = isCloudReader.value
     ? await cloudService.loadWebDavImageAssetSrc(cloudService.pathFromReaderId(mangaId.value), image)
@@ -552,6 +943,7 @@ async function reloadCloudImage(index: number) {
 async function handleImageError(index: number) {
   const image = images.value[index]
   if (!image) return
+  if (image.kind === 'text') return
 
   if (isCloudReader.value) {
     cloudService.releaseWebDavImageAssetSrc(cloudService.pathFromReaderId(mangaId.value), image)
@@ -759,8 +1151,28 @@ function handleContinuousScroll() {
 
 .gallery-stage {
   display: flex;
+  position: relative;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+}
+
+.gallery-stage.text-stage {
+  align-items: stretch;
+}
+
+.gallery-page-frame {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+.gallery-page-frame.text-page-frame {
+  align-items: stretch;
 }
 
 .continuous-stage {
@@ -820,6 +1232,86 @@ function handleContinuousScroll() {
   line-height: 1.6;
 }
 
+.reader-text-page {
+  width: min(100%, 760px);
+  margin: 0 auto;
+  color: var(--color-text);
+  font-size: var(--reader-text-font-size, 18px);
+  line-height: var(--reader-text-line-height, 1.86);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.gallery-text-page {
+  height: 100dvh;
+  overflow-y: auto;
+  padding: calc(var(--safe-top) + 76px) 24px calc(var(--safe-bottom) + 128px);
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.gallery-text-page::-webkit-scrollbar {
+  display: none;
+}
+
+.continuous-text-page {
+  padding: 34px 24px 44px;
+}
+
+.reader-text-page :deep(p) {
+  margin: 0 0 var(--reader-text-paragraph-spacing, 1em);
+  text-indent: var(--reader-text-indent, 0);
+}
+
+.reader-text-page :deep(h1),
+.reader-text-page :deep(h2),
+.reader-text-page :deep(h3),
+.reader-text-page :deep(h4),
+.reader-text-page :deep(h5),
+.reader-text-page :deep(h6) {
+  margin: 1.2em 0 0.72em;
+  color: var(--color-accent-bright);
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.reader-text-page :deep(h1) {
+  font-size: 26px;
+}
+
+.reader-text-page :deep(h2) {
+  font-size: 23px;
+}
+
+.reader-text-page :deep(h3) {
+  font-size: 21px;
+}
+
+.reader-text-page :deep(blockquote) {
+  margin: 1.2em 0;
+  border-left: 3px solid rgba(225, 194, 150, 0.42);
+  padding-left: 14px;
+  color: rgba(229, 226, 225, 0.78);
+}
+
+.reader-text-page :deep(img) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 24px auto;
+  border-radius: 12px;
+}
+
+.reader-text-page :deep(hr) {
+  margin: 28px 0;
+  border: 0;
+  border-top: 1px solid rgba(153, 143, 131, 0.18);
+}
+
+.reader-text-page :deep(a) {
+  color: var(--color-accent-bright);
+}
+
 .continuous-placeholder {
   width: 100%;
   min-height: 100dvh;
@@ -840,6 +1332,11 @@ function handleContinuousScroll() {
   background: linear-gradient(to bottom, rgba(15, 15, 15, 0.9), rgba(15, 15, 15, 0));
 }
 
+.reader-title-stack {
+  min-width: 0;
+  text-align: center;
+}
+
 .reader-top span {
   display: block;
   color: var(--color-accent);
@@ -854,6 +1351,18 @@ function handleContinuousScroll() {
   overflow: hidden;
   color: rgba(229, 226, 225, 0.7);
   font-size: 12px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-top small {
+  display: block;
+  max-width: 210px;
+  overflow: hidden;
+  margin-top: 3px;
+  color: rgba(229, 226, 225, 0.52);
+  font-size: 11px;
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -987,6 +1496,49 @@ function handleContinuousScroll() {
   display: none;
 }
 
+.reader-chapter-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 54px;
+  border: 1px solid rgba(153, 143, 131, 0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: rgba(209, 197, 183, 0.72);
+  background: rgba(30, 30, 30, 0.72);
+  text-align: left;
+}
+
+.reader-chapter-item span,
+.reader-chapter-item em {
+  color: rgba(209, 197, 183, 0.52);
+  font-size: 12px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.reader-chapter-item strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-chapter-item.active {
+  border-color: rgba(225, 194, 150, 0.6);
+  background: rgba(184, 155, 114, 0.14);
+}
+
+.reader-chapter-item.active span,
+.reader-chapter-item.active em,
+.reader-chapter-item.active strong {
+  color: var(--color-accent-bright);
+}
+
 .reader-page-chip {
   flex: 0 0 auto;
   min-width: 42px;
@@ -1049,6 +1601,74 @@ function handleContinuousScroll() {
 }
 
 .reader-settings-drawer::-webkit-scrollbar {
+  display: none;
+}
+
+.reader-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 32;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.reader-chapter-sheet {
+  width: 100%;
+  max-height: min(78dvh, 620px);
+  overflow: hidden;
+  border: 1px solid rgba(153, 143, 131, 0.2);
+  border-bottom: 0;
+  border-radius: 22px 22px 0 0;
+  padding: 8px 18px calc(var(--safe-bottom) + 18px);
+  background: rgba(22, 19, 19, 0.98);
+  box-shadow: 0 -18px 56px rgba(0, 0, 0, 0.46);
+}
+
+.reader-sheet-handle {
+  display: flex;
+  width: 100%;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+}
+
+.reader-sheet-handle span {
+  width: 42px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(209, 197, 183, 0.36);
+}
+
+.reader-chapter-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 0 18px;
+}
+
+.reader-chapter-sheet-header h2 {
+  margin: 6px 0 0;
+  color: var(--color-text);
+  font-size: 26px;
+  font-weight: 400;
+}
+
+.reader-chapter-sheet-list {
+  display: grid;
+  max-height: calc(min(78dvh, 620px) - 126px - var(--safe-bottom));
+  gap: 10px;
+  overflow-y: auto;
+  padding: 0 2px 4px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.reader-chapter-sheet-list::-webkit-scrollbar {
   display: none;
 }
 
@@ -1125,6 +1745,107 @@ function handleContinuousScroll() {
   background: rgba(184, 155, 114, 0.12);
 }
 
+.reader-toggle-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  width: 100%;
+  margin-top: 14px;
+  border: 1px solid rgba(153, 143, 131, 0.2);
+  border-radius: 18px;
+  padding: 16px;
+  color: var(--color-text);
+  background: rgba(34, 30, 30, 0.72);
+  text-align: left;
+}
+
+.reader-toggle-option strong {
+  display: block;
+  font-size: 18px;
+  font-weight: 400;
+}
+
+.reader-toggle-option div span {
+  display: block;
+  margin-top: 6px;
+  color: rgba(209, 197, 183, 0.68);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.reader-toggle-option.active {
+  border-color: rgba(225, 194, 150, 0.58);
+  background: rgba(184, 155, 114, 0.12);
+}
+
+.reader-switch {
+  position: relative;
+  display: inline-flex;
+  width: 48px;
+  height: 28px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(153, 143, 131, 0.26);
+  border-radius: 999px;
+  background: rgba(18, 18, 18, 0.82);
+}
+
+.reader-switch i {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(209, 197, 183, 0.72);
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), background 180ms ease;
+}
+
+.reader-switch.active {
+  border-color: rgba(225, 194, 150, 0.62);
+  background: rgba(184, 155, 114, 0.2);
+}
+
+.reader-switch.active i {
+  background: var(--color-accent-bright);
+  transform: translate3d(20px, 0, 0);
+}
+
+.reader-range-setting {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  border: 1px solid rgba(153, 143, 131, 0.2);
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(34, 30, 30, 0.72);
+}
+
+.reader-range-setting span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reader-range-setting strong {
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.reader-range-setting em {
+  color: var(--color-accent-bright);
+  font-size: 13px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.reader-range-setting input {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
 .reader-settings-segment {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1134,6 +1855,31 @@ function handleContinuousScroll() {
 
 .drawer-chip {
   width: 100%;
+}
+
+.reader-page-slide-next-enter-active,
+.reader-page-slide-next-leave-active,
+.reader-page-slide-previous-enter-active,
+.reader-page-slide-previous-leave-active {
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+.reader-page-slide-next-enter-from,
+.reader-page-slide-previous-leave-to {
+  transform: translate3d(100%, 0, 0);
+}
+
+.reader-page-slide-next-leave-to,
+.reader-page-slide-previous-enter-from {
+  transform: translate3d(-100%, 0, 0);
+}
+
+.reader-page-slide-next-enter-to,
+.reader-page-slide-next-leave-from,
+.reader-page-slide-previous-enter-to,
+.reader-page-slide-previous-leave-from {
+  transform: translate3d(0, 0, 0);
 }
 
 .reader-top-slide-enter-active,
@@ -1168,6 +1914,27 @@ function handleContinuousScroll() {
   transform: translate3d(0, 8px, 0) scale(0.98);
 }
 
+.reader-sheet-enter-active,
+.reader-sheet-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.reader-sheet-enter-active .reader-chapter-sheet,
+.reader-sheet-leave-active .reader-chapter-sheet {
+  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+.reader-sheet-enter-from,
+.reader-sheet-leave-to {
+  opacity: 0;
+}
+
+.reader-sheet-enter-from .reader-chapter-sheet,
+.reader-sheet-leave-to .reader-chapter-sheet {
+  transform: translate3d(0, 100%, 0);
+}
+
 .reader-drawer-enter-active,
 .reader-drawer-leave-active {
   transition: opacity 180ms ease;
@@ -1187,5 +1954,27 @@ function handleContinuousScroll() {
 .reader-drawer-enter-from .reader-settings-drawer,
 .reader-drawer-leave-to .reader-settings-drawer {
   transform: translate3d(100%, 0, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-page-slide-next-enter-active,
+  .reader-page-slide-next-leave-active,
+  .reader-page-slide-previous-enter-active,
+  .reader-page-slide-previous-leave-active,
+  .reader-sheet-enter-active,
+  .reader-sheet-leave-active,
+  .reader-sheet-enter-active .reader-chapter-sheet,
+  .reader-sheet-leave-active .reader-chapter-sheet {
+    transition: none;
+  }
+
+  .reader-page-slide-next-enter-from,
+  .reader-page-slide-next-leave-to,
+  .reader-page-slide-previous-enter-from,
+  .reader-page-slide-previous-leave-to,
+  .reader-sheet-enter-from .reader-chapter-sheet,
+  .reader-sheet-leave-to .reader-chapter-sheet {
+    transform: translate3d(0, 0, 0);
+  }
 }
 </style>
