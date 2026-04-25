@@ -16,7 +16,7 @@
         v-model="importTitle"
         class="text-input"
         type="text"
-        placeholder="单本可手动命名，多本会使用文件名"
+        placeholder="单本/EPUB 合集可手动命名，多本普通导入会使用文件名"
         autocomplete="off"
       />
 
@@ -37,10 +37,15 @@
           <Images :size="18" />
           图片/文件
         </button>
+        <button class="ghost-button import-button" type="button" :disabled="operationBusy" @click="epubCollectionInput?.click()">
+          <BookOpen :size="18" />
+          EPUB合集
+        </button>
       </div>
 
       <input ref="archiveInput" class="hidden-input" type="file" accept=".zip,.cbz,application/zip" multiple @change="handleArchiveImport" />
       <input ref="imageInput" class="hidden-input" type="file" accept="image/*,.epub,.txt,application/epub+zip,text/plain" multiple @change="handleImageFilesImport($event, '图片/文件')" />
+      <input ref="epubCollectionInput" class="hidden-input" type="file" accept=".epub,application/epub+zip" multiple @change="handleEpubCollectionImport" />
 
       <div v-if="message" class="import-message">
         <span>{{ message }}</span>
@@ -316,13 +321,14 @@ import { nativeHttpService } from '@/services/nativeHttpService'
 import { networkProxySettings } from '@/services/networkProxySettings'
 import { useImportTaskStore, type ImportTaskManga } from '@/stores/importTaskStore'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { Archive, ChevronDown, FolderOpen, HardDrive, Images, RotateCcw, Trash2, Wifi } from 'lucide-vue-next'
+import { Archive, BookOpen, ChevronDown, FolderOpen, HardDrive, Images, RotateCcw, Trash2, Wifi } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 
 const library = useLibraryStore()
 const importTask = useImportTaskStore()
 const archiveInput = ref<HTMLInputElement | null>(null)
 const imageInput = ref<HTMLInputElement | null>(null)
+const epubCollectionInput = ref<HTMLInputElement | null>(null)
 const importTitle = ref('')
 const message = ref('')
 const busy = ref(false)
@@ -551,6 +557,36 @@ async function handleImageFilesImport(event: Event, label: string) {
     importTitle.value = ''
   } catch (error) {
     failImportMessage(error instanceof Error ? error.message : `${label}导入失败`)
+  } finally {
+    busy.value = false
+    input.value = ''
+  }
+}
+
+async function handleEpubCollectionImport(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? []).filter(isEpubImportFile)
+  if (files.length === 0) return
+
+  busy.value = true
+  startImportMessage('正在导入 EPUB 合集...')
+  try {
+    if (files.length < 2) {
+      throw new Error('EPUB 合集至少需要选择 2 个 EPUB 文件')
+    }
+
+    const collectionTitle = requestedTitle() || libraryService.suggestEpubCollectionTitle(files)
+    updateImportMessage(`正在合并 ${files.length} 个 EPUB：${collectionTitle}`)
+    const manga = await libraryService.importEpubCollection(files, collectionTitle)
+
+    await library.refresh()
+    completeImportMessage(`已导入 EPUB 合集 ${manga.title}，共 ${manga.imageCount} 页`, {
+      id: manga.id,
+      title: manga.title,
+    })
+    importTitle.value = ''
+  } catch (error) {
+    failImportMessage(error instanceof Error ? error.message : 'EPUB 合集导入失败')
   } finally {
     busy.value = false
     input.value = ''

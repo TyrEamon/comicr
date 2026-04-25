@@ -41,6 +41,10 @@ type EpubTocItem = {
   title: string
   path: string
 }
+type EpubReaderAssetBundle = {
+  title: string
+  pages: ReaderAssetInput[]
+}
 
 function extensionOf(name: string) {
   const index = name.lastIndexOf('.')
@@ -540,6 +544,227 @@ function cleanFolderTitle(files: PickedImageFile[], title?: string) {
   return firstName ? firstName.replace(/\.[^.]+$/, '').trim() || '图片导入' : '图片导入'
 }
 
+function cleanEpubVolumeMarker(title: string) {
+  return title
+    .replace(/\.epub$/i, '')
+    .replace(/\s*(?:vol(?:ume)?|book|part)\.?\s*\d+$/i, '')
+    .replace(/\s*[\[(（【]?(?:第\s*)?(?:\d{1,4}|[零〇一二两三四五六七八九十百千万上下中前后]+)\s*(?:卷|册|集|部|章)?[\])）】]?$/i, '')
+    .replace(/[\s._-]+(?:\d{1,4}|[上下中前后])$/i, '')
+    .replace(/[\s._-]+$/g, '')
+    .trim()
+}
+
+function commonTitlePrefix(values: string[]) {
+  if (values.length === 0) return ''
+  let prefix = values[0]
+  for (const value of values.slice(1)) {
+    while (prefix && !value.startsWith(prefix)) {
+      prefix = prefix.slice(0, -1)
+    }
+  }
+  return prefix.replace(/[\s._\-·・:：,，、]+$/g, '').trim()
+}
+
+function suggestEpubCollectionTitle(files: File[]) {
+  const names = files
+    .map((file) => cleanEpubVolumeMarker(file.name))
+    .filter(Boolean)
+
+  const uniqueNames = Array.from(new Set(names))
+  if (uniqueNames.length === 1 && uniqueNames[0].length >= 2) {
+    return uniqueNames[0]
+  }
+
+  const prefix = commonTitlePrefix(uniqueNames)
+  return prefix.length >= 2 ? prefix : 'EPUB合集'
+}
+
+function prefixedVolumeChapterTitle(volumeTitle: string, title?: string) {
+  const cleanTitle = cleanEpubText(title)
+  if (!cleanTitle || cleanTitle === volumeTitle) return volumeTitle
+  if (cleanTitle.startsWith(`${volumeTitle} `) || cleanTitle.startsWith(`${volumeTitle}·`) || cleanTitle.startsWith(`${volumeTitle} ·`)) {
+    return cleanTitle
+  }
+  return `${volumeTitle} · ${cleanTitle}`
+}
+
+async function parseEpubReaderAssets(file: File): Promise<EpubReaderAssetBundle> {
+  const zip = await JSZip.loadAsync(file)
+  const entries = Object.values(zip.files).filter((entry) => !entry.dir)
+  const entriesByPath = new Map(entries.map((entry) => [normalizeZipPath(entry.name), entry]))
+  const imageEntries = entries.filter((entry) => IMAGE_EXTENSIONS.has(extensionOf(entry.name)))
+  const imageEntriesByPath = new Map(imageEntries.map((entry) => [normalizeZipPath(entry.name), entry]))
+
+  const pages: ReaderAssetInput[] = []
+  const chapterTitleByPath = new Map<string, string>()
+  const chapterIndexByPath = new Map<string, number>()
+  const fallbackChapterIndexByPath = new Map<string, number>()
+  const seenImagePages = new Set<string>()
+  const chapterForPage = (path: string, fallbackTitle: string) => {
+    const normalized = normalizeZipPath(path)
+    const mappedTitle = chapterTitleByPath.get(normalized)
+    let chapterIndex = chapterIndexByPath.get(normalized)
+
+    if (chapterIndex === undefined) {
+      if (!fallbackChapterIndexByPath.has(normalized)) {
+        fallbackChapterIndexByPath.set(normalized, chapterIndexByPath.size + fallbackChapterIndexByPath.size)
+      }
+      chapterIndex = fallbackChapterIndexByPath.get(normalized) ?? 0
+    }
+
+    const fallbackChapterTitle = cleanEpubText(fallbackTitle)
+    const preferredTitle = mappedTitle && !isGenericEpubTitle(mappedTitle)
+      ? mappedTitle
+      : fallbackChapterTitle
+
+    return {
+      chapterTitle: cleanEpubText(preferredTitle) || `章节 ${chapterIndex + 1}`,
+      chapterHref: normalized,
+      chapterIndex,
+    }
+  }
+  const addImagePage = async (
+    path: string,
+    chapter?: Pick<ReaderAssetInput, 'chapterTitle' | 'chapterHref' | 'chapterIndex'>,
+  ) => {
+    const normalized = normalizeZipPath(path)
+    const entry = imageEntriesByPath.get(normalized)
+    if (!entry || seenImagePages.has(normalized)) return
+    seenImagePages.add(normalized)
+    pages.push({
+      name: normalized.split('/').pop() || normalized,
+      type: mimeFromName(normalized),
+      kind: 'image',
+      blob: await entry.async('blob'),
+      ...chapter,
+    })
+  }
+
+  const containerEntry = entriesByPath.get('META-INF/container.xml')
+  let opfPath = ''
+  if (containerEntry) {
+    const container = parseXml(await containerEntry.async('text'), 'EPUB 容器')
+    opfPath = xmlElements(container, 'rootfile')[0]?.getAttribute('full-path') || ''
+    opfPath = normalizeZipPath(opfPath)
+  }
+  if (!opfPath || !entriesByPath.has(opfPath)) {
+    opfPath = entries
+      .map((entry) => normalizeZipPath(entry.name))
+      .find((path) => extensionOf(path) === '.opf') || ''
+  }
+
+  let epubTitle = ''
+  if (opfPath) {
+    const opfEntry = entriesByPath.get(opfPath)
+    if (opfEntry) {
+      const opf = parseXml(await opfEntry.async('text'), 'EPUB 目录')
+      const opfDir = zipDirName(opfPath)
+      epubTitle = xmlElements(opf, 'title')[0]?.textContent?.trim() || ''
+
+      const manifest = new Map<string, EpubManifestItem>()
+      for (const item of xmlElements(opf, 'item')) {
+        const id = item.getAttribute('id')
+        const href = item.getAttribute('href')
+        if (!id || !href) continue
+        manifest.set(id, {
+          path: joinZipPath(opfDir, href),
+          mediaType: item.getAttribute('media-type') || '',
+          properties: item.getAttribute('properties') || '',
+        })
+      }
+
+      const spine = xmlElements(opf, 'spine')[0]
+      const navItem = Array.from(manifest.values()).find((item) => item.properties.split(/\s+/).includes('nav'))
+      const ncxItem = (spine?.getAttribute('toc') ? manifest.get(spine.getAttribute('toc') || '') : undefined)
+        || Array.from(manifest.values()).find((item) => item.mediaType === 'application/x-dtbncx+xml' || extensionOf(item.path) === '.ncx')
+      let tocItems: EpubTocItem[] = []
+
+      if (navItem) {
+        const navEntry = entriesByPath.get(navItem.path)
+        if (navEntry) {
+          tocItems = parseEpubNavChapters(await navEntry.async('text'), zipDirName(navItem.path))
+        }
+      }
+
+      if (tocItems.length === 0 && ncxItem) {
+        const ncxEntry = entriesByPath.get(ncxItem.path)
+        if (ncxEntry) {
+          tocItems = parseEpubNcxChapters(await ncxEntry.async('text'), zipDirName(ncxItem.path))
+        }
+      }
+
+      tocItems.forEach((chapter, index) => {
+        if (chapterTitleByPath.has(chapter.path)) return
+        chapterTitleByPath.set(chapter.path, chapter.title)
+        chapterIndexByPath.set(chapter.path, index)
+      })
+
+      for (const itemref of xmlElements(opf, 'itemref')) {
+        const idref = itemref.getAttribute('idref')
+        const item = idref ? manifest.get(idref) : undefined
+        if (!item) continue
+        if (item.properties.split(/\s+/).includes('nav')) continue
+
+        if (IMAGE_EXTENSIONS.has(extensionOf(item.path)) || item.mediaType.startsWith('image/')) {
+          await addImagePage(item.path, chapterForPage(item.path, item.path.split('/').pop() || '插图'))
+          continue
+        }
+
+        if (!isEpubDocument(item.path, item.mediaType)) continue
+
+        const pageEntry = entriesByPath.get(item.path)
+        if (!pageEntry) continue
+
+        const pageDir = zipDirName(item.path)
+        const rawHtml = await pageEntry.async('text')
+        const sanitized = await sanitizeEpubHtml(rawHtml, pageDir, imageEntriesByPath)
+        const chapter = chapterForPage(
+          item.path,
+          titleFromEpubDocument(rawHtml) || item.path.split('/').pop()?.replace(/\.(xhtml|html|htm)$/i, '') || '',
+        )
+
+        if (sanitized.text) {
+          pages.push({
+            name: chapter.chapterTitle,
+            type: 'text/html',
+            kind: 'text',
+            html: sanitized.html,
+            ...chapter,
+          })
+          continue
+        }
+
+        if (isImageContent(sanitized.html)) {
+          pages.push({
+            name: chapter.chapterTitle,
+            type: 'text/html',
+            kind: 'text',
+            html: sanitized.html,
+            ...chapter,
+          })
+        }
+      }
+    }
+  }
+
+  if (pages.length === 0 && imageEntries.length > 0) {
+    for (const path of imageEntries
+      .map((entry) => normalizeZipPath(entry.name))
+      .sort((left, right) => collator.compare(left, right))) {
+      await addImagePage(path)
+    }
+  }
+
+  if (pages.length === 0) {
+    throw new Error('EPUB 里没有可导入的正文或图片')
+  }
+
+  return {
+    title: (isGenericEpubTitle(epubTitle) ? '' : cleanEpubText(epubTitle)) || cleanEpubTitle(file.name),
+    pages,
+  }
+}
+
 function randomId(prefix: string) {
   const value = typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
@@ -572,6 +797,10 @@ function saveJsonRecord<T>(key: string, value: T) {
 export const libraryService = {
   stableImportId(prefix: string, key: string) {
     return stableId(prefix, key)
+  },
+
+  suggestEpubCollectionTitle(files: File[]) {
+    return suggestEpubCollectionTitle(files)
   },
 
   async listMangas() {
@@ -609,6 +838,61 @@ export const libraryService = {
       return this.importImageBlobs(cleanManualTitle(title) || cleanArchiveTitle(file.name), blobs, source)
     } catch (error) {
       throw normalizeArchiveError(error, '导入压缩包')
+    }
+  },
+
+  async importEpubCollection(files: File[], title?: string, options?: { id?: string; localPath?: string }) {
+    try {
+      const epubFiles = files
+        .filter((file) => file.name.toLowerCase().endsWith('.epub') || file.type === 'application/epub+zip')
+        .sort((left, right) => collator.compare(left.name, right.name))
+
+      if (epubFiles.length < 2) {
+        throw new Error('EPUB 合集至少需要选择 2 个 EPUB 文件')
+      }
+
+      const bundles = await Promise.all(epubFiles.map(async (file) => ({
+        file,
+        ...(await parseEpubReaderAssets(file)),
+      })))
+      const assets: ReaderAssetInput[] = []
+      let chapterOffset = 0
+
+      bundles.forEach((bundle, volumeIndex) => {
+        const volumeTitle = cleanEpubText(bundle.title) || cleanEpubTitle(bundle.file.name) || `第 ${volumeIndex + 1} 卷`
+        const localChapterIndexes = new Map<string, number>()
+        let maxLocalChapterIndex = -1
+
+        bundle.pages.forEach((asset, pageIndex) => {
+          const localChapterKey = asset.chapterHref
+            ? `href:${asset.chapterHref}`
+            : asset.chapterIndex !== undefined
+              ? `index:${asset.chapterIndex}`
+              : `page:${pageIndex}`
+          if (!localChapterIndexes.has(localChapterKey)) {
+            localChapterIndexes.set(localChapterKey, localChapterIndexes.size)
+          }
+
+          const localChapterIndex = asset.chapterIndex ?? localChapterIndexes.get(localChapterKey) ?? 0
+          maxLocalChapterIndex = Math.max(maxLocalChapterIndex, localChapterIndex)
+          const chapterTitle = prefixedVolumeChapterTitle(volumeTitle, asset.chapterTitle || asset.name)
+
+          assets.push({
+            ...asset,
+            name: asset.kind === 'text' ? chapterTitle : `${volumeTitle} · ${asset.name}`,
+            chapterTitle,
+            chapterHref: `volume:${volumeIndex}:${asset.chapterHref || asset.name || pageIndex}`,
+            chapterIndex: chapterOffset + localChapterIndex,
+          })
+        })
+
+        chapterOffset += Math.max(1, maxLocalChapterIndex + 1)
+      })
+
+      const mangaTitle = cleanManualTitle(title) || suggestEpubCollectionTitle(epubFiles)
+      return this.importReaderAssets(mangaTitle, assets, 'epub', options)
+    } catch (error) {
+      throw normalizeArchiveError(error, '导入 EPUB 合集')
     }
   },
 

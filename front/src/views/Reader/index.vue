@@ -516,16 +516,60 @@ const galleryVirtualCurrentPage = computed(() => {
     : 0
   return Math.min(galleryVirtualTotalPages.value, beforeCurrent + currentOffset + 1)
 })
+const currentChapterPageRange = computed(() => {
+  const imageCount = images.value.length
+  if (imageCount === 0) return { startIndex: 0, endIndex: 0 }
+
+  const chapters = readerChapters.value
+  const chapter = currentChapter.value
+  if (!chapter) return { startIndex: 0, endIndex: imageCount - 1 }
+
+  const startIndex = Math.min(imageCount - 1, Math.max(0, chapter.pageIndex))
+  const chapterListIndex = chapters.findIndex((item) => item.id === chapter.id)
+  const nextChapter = chapterListIndex >= 0 ? chapters[chapterListIndex + 1] : undefined
+  const endIndex = Math.max(startIndex, Math.min(imageCount - 1, (nextChapter?.pageIndex ?? imageCount) - 1))
+  return { startIndex, endIndex }
+})
+const readerChapterPageStatus = computed(() => {
+  const imageCount = images.value.length
+  if (imageCount === 0) return { current: 0, total: 0 }
+
+  const { startIndex, endIndex } = currentChapterPageRange.value
+  const pageCountAt = (index: number) => Math.max(1, galleryNormalizedPageCounts.value[index] ?? 1)
+  const total = Math.max(
+    1,
+    galleryNormalizedPageCounts.value
+      .slice(startIndex, endIndex + 1)
+      .reduce((sum, count) => sum + Math.max(1, count), 0),
+  )
+  const beforeCurrent = galleryNormalizedPageCounts.value
+    .slice(startIndex, currentIndex.value)
+    .reduce((sum, count) => sum + Math.max(1, count), 0)
+  const currentPageCount = pageCountAt(currentIndex.value)
+  const currentOffset = currentImage.value?.kind === 'text'
+    ? Math.min(galleryTextPageIndex.value, currentPageCount - 1)
+    : 0
+
+  return {
+    current: Math.min(total, Math.max(1, beforeCurrent + currentOffset + 1)),
+    total,
+  }
+})
+const useChapterProgressSlider = computed(() => isGalleryPagedProgress.value && Boolean(currentChapter.value))
 const readerProgressValue = computed(() => (
+  useChapterProgressSlider.value ? readerChapterPageStatus.value.current - 1 :
   isGalleryPagedProgress.value ? galleryVirtualCurrentPage.value - 1 : currentIndex.value
 ))
 const readerProgressMax = computed(() => (
+  useChapterProgressSlider.value ? Math.max(0, readerChapterPageStatus.value.total - 1) :
   isGalleryPagedProgress.value ? galleryVirtualTotalPages.value - 1 : lastImageIndex.value
 ))
 const readerProgressCurrentLabel = computed(() => (
+  useChapterProgressSlider.value ? readerChapterPageStatus.value.current :
   isGalleryPagedProgress.value ? galleryVirtualCurrentPage.value : currentIndex.value + 1
 ))
 const readerProgressTotalLabel = computed(() => (
+  useChapterProgressSlider.value ? readerChapterPageStatus.value.total :
   isGalleryPagedProgress.value ? galleryVirtualTotalPages.value : images.value.length
 ))
 const galleryPageTransitionEnabled = computed(() => pageTurnAnimation.value && !reducedMotion.value && readerMode.value === 'gallery')
@@ -563,42 +607,6 @@ const readerChapters = computed<ReaderChapter[]>(() => {
   return chapters.sort((left, right) => left.pageIndex - right.pageIndex)
 })
 const hasChapterList = computed(() => readerChapters.value.length > 0)
-const readerChapterPageStatus = computed(() => {
-  const imageCount = images.value.length
-  if (imageCount === 0) return { current: 0, total: 0 }
-
-  const chapters = readerChapters.value
-  const chapter = currentChapter.value
-  let startIndex = 0
-  let endIndex = imageCount - 1
-
-  if (chapter) {
-    startIndex = Math.min(imageCount - 1, Math.max(0, chapter.pageIndex))
-    const chapterListIndex = chapters.findIndex((item) => item.id === chapter.id)
-    const nextChapter = chapterListIndex >= 0 ? chapters[chapterListIndex + 1] : undefined
-    endIndex = Math.max(startIndex, Math.min(imageCount - 1, (nextChapter?.pageIndex ?? imageCount) - 1))
-  }
-
-  const pageCountAt = (index: number) => Math.max(1, galleryNormalizedPageCounts.value[index] ?? 1)
-  const total = Math.max(
-    1,
-    galleryNormalizedPageCounts.value
-      .slice(startIndex, endIndex + 1)
-      .reduce((sum, count) => sum + Math.max(1, count), 0),
-  )
-  const beforeCurrent = galleryNormalizedPageCounts.value
-    .slice(startIndex, currentIndex.value)
-    .reduce((sum, count) => sum + Math.max(1, count), 0)
-  const currentPageCount = pageCountAt(currentIndex.value)
-  const currentOffset = currentImage.value?.kind === 'text'
-    ? Math.min(galleryTextPageIndex.value, currentPageCount - 1)
-    : 0
-
-  return {
-    current: Math.min(total, Math.max(1, beforeCurrent + currentOffset + 1)),
-    total,
-  }
-})
 const readerChapterStatusTitle = computed(() => currentChapter.value?.title?.trim() || manga.value?.title || '')
 const readerChapterPageLabel = computed(() => `${readerChapterPageStatus.value.current} / ${readerChapterPageStatus.value.total}`)
 const readerBatteryStyle = computed(() => ({
@@ -1212,6 +1220,49 @@ function pageTurnDirectionFor(nextIndex: number): PageTurnDirection {
   return visuallyNext ? 'next' : 'previous'
 }
 
+function prepareGalleryTextPageTarget(index: number, target: GalleryTextPageTarget = 'start') {
+  if (readerMode.value !== 'gallery') return
+  if (target === 'keep') return
+
+  const image = images.value[index]
+  if (image?.kind !== 'text') return
+
+  let nextWidth = galleryTextPageWidth.value
+  let nextHeight = 0
+  const root = galleryTextMeasureRoot.value
+  if (root && nextWidth <= 1) {
+    const metrics = galleryTextMetrics(root)
+    nextWidth = metrics.width
+    nextHeight = metrics.height
+    galleryTextPageWidth.value = nextWidth
+  }
+
+  let nextCount = Math.max(1, galleryVirtualPageCounts.value[index] ?? 0)
+  if (nextCount <= 1 && root && image.html) {
+    if (nextHeight <= 0) {
+      const metrics = galleryTextMetrics(root)
+      nextWidth = metrics.width
+      nextHeight = metrics.height
+      galleryTextPageWidth.value = nextWidth
+    }
+    nextCount = measureGalleryTextHtml(image.html, nextWidth, nextHeight)
+    setGalleryVirtualPageCount(index, nextCount)
+    root.replaceChildren()
+  }
+
+  if (target === 'start') {
+    galleryTextPageIndex.value = 0
+    return
+  }
+
+  if (target === 'end') {
+    galleryTextPageIndex.value = nextCount - 1
+    return
+  }
+
+  galleryTextPageIndex.value = Math.min(nextCount - 1, Math.max(0, target))
+}
+
 function goToPage(index: number, options: PageNavigationOptions = {}) {
   const nextIndex = Math.min(lastImageIndex.value, Math.max(0, index))
   const currentPageIndex = currentIndex.value
@@ -1227,6 +1278,9 @@ function goToPage(index: number, options: PageNavigationOptions = {}) {
   }
 
   pendingGalleryTextPageTarget = options.textPage ?? 'start'
+  if (nextIndex !== currentPageIndex) {
+    prepareGalleryTextPageTarget(nextIndex, pendingGalleryTextPageTarget)
+  }
   currentIndex.value = nextIndex
   if (nextIndex === currentPageIndex) {
     scheduleGalleryTextPagination(pendingGalleryTextPageTarget)
@@ -1340,9 +1394,33 @@ function goToVirtualPage(pageIndex: number) {
   goToPage(lastImageIndex.value, { animate: false, textPage: 'end' })
 }
 
+function goToChapterVirtualPage(pageIndex: number) {
+  const targetPage = Math.min(readerProgressMax.value, Math.max(0, pageIndex))
+  const { startIndex, endIndex } = currentChapterPageRange.value
+  let offset = 0
+
+  for (let index = startIndex; index <= endIndex; index += 1) {
+    const count = Math.max(1, galleryNormalizedPageCounts.value[index] ?? 1)
+    const nextOffset = offset + count
+    if (targetPage < nextOffset) {
+      const image = images.value[index]
+      const textPage = image?.kind === 'text' ? targetPage - offset : undefined
+      goToPage(index, { animate: false, textPage })
+      return
+    }
+    offset = nextOffset
+  }
+
+  goToPage(endIndex, { animate: false, textPage: 'end' })
+}
+
 function handleProgressInput(event: Event) {
   const nextIndex = Number((event.target as HTMLInputElement).value)
   if (isGalleryPagedProgress.value) {
+    if (useChapterProgressSlider.value) {
+      goToChapterVirtualPage(nextIndex)
+      return
+    }
     goToVirtualPage(nextIndex)
     return
   }
