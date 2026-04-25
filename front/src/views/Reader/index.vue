@@ -27,6 +27,7 @@
             <article
               v-if="currentImage?.kind === 'text'"
               class="reader-text-page gallery-text-page"
+              :class="{ 'rounded-media': shouldRoundReaderMedia }"
               :style="textPageStyle"
               @click.stop="handleGalleryTap"
             >
@@ -42,7 +43,7 @@
             <img
               v-else-if="currentImage?.src"
               class="reader-image"
-              :class="{ 'fit-width': fitMode === 'width', rounded: imageRoundedCorners }"
+              :class="{ 'fit-width': fitMode === 'width', rounded: shouldRoundReaderMedia }"
               :src="currentImage.src"
               :alt="currentImage.name"
               :style="imageStyle"
@@ -71,6 +72,7 @@
           <article
             v-if="image.kind === 'text'"
             class="reader-text-page continuous-text-page"
+            :class="{ 'rounded-media': shouldRoundReaderMedia }"
             :style="textPageStyle"
             @click.stop="toggleControls()"
             v-html="image.html"
@@ -78,7 +80,7 @@
           <img
             v-else-if="image.src"
             class="reader-image continuous-image"
-            :class="{ 'fit-width': fitMode === 'width', rounded: imageRoundedCorners }"
+            :class="{ 'fit-width': fitMode === 'width', rounded: shouldRoundReaderMedia }"
             :src="image.src"
             :alt="image.name"
             :style="imageStyle"
@@ -208,6 +210,7 @@
         v-if="readerMode === 'gallery' && hasTextPages"
         ref="galleryTextMeasureRoot"
         class="reader-text-page gallery-text-page reader-text-measure-root"
+        :class="{ 'rounded-media': shouldRoundReaderMedia }"
         :style="textPageStyle"
         aria-hidden="true"
       />
@@ -364,7 +367,7 @@
                 <button class="setting-chip drawer-chip" :class="{ active: fitMode === 'contain' }" type="button" @click="setFitMode('contain')">适应屏幕</button>
                 <button class="setting-chip drawer-chip" :class="{ active: fitMode === 'width' }" type="button" @click="setFitMode('width')">适应宽度</button>
               </div>
-              <button class="reader-toggle-option" type="button" :class="{ active: imageRoundedCorners }" @click="toggleImageRoundedCorners">
+              <button v-if="isNovelReader" class="reader-toggle-option" type="button" :class="{ active: imageRoundedCorners }" @click="toggleImageRoundedCorners">
                 <div>
                   <strong>图片圆角</strong>
                   <span>给图片页额外加柔和圆角，关闭后按原图边缘显示</span>
@@ -473,6 +476,8 @@ const currentImage = computed(() => images.value[currentIndex.value] ?? null)
 const isContinuousMode = computed(() => readerMode.value === 'continuous')
 const lastImageIndex = computed(() => Math.max(0, images.value.length - 1))
 const hasTextPages = computed(() => images.value.some((image) => image.kind === 'text'))
+const isNovelReader = computed(() => hasTextPages.value || manga.value?.source === 'epub' || manga.value?.source === 'txt')
+const shouldRoundReaderMedia = computed(() => isNovelReader.value && imageRoundedCorners.value)
 const imageStyle = computed(() => ({ filter: `brightness(${brightness.value}%)` }))
 const textPageStyle = computed(() => ({
   ...imageStyle.value,
@@ -1570,6 +1575,7 @@ function handleContinuousScroll() {
 .reader-image {
   max-width: 100%;
   max-height: 100dvh;
+  border-radius: 0;
   object-fit: contain;
 }
 
@@ -1609,7 +1615,9 @@ function handleContinuousScroll() {
   color: var(--color-text);
   font-size: var(--reader-text-font-size, 18px);
   line-height: var(--reader-text-line-height, 1.86);
+  orphans: 1;
   overflow-wrap: anywhere;
+  widows: 1;
   word-break: break-word;
 }
 
@@ -1617,7 +1625,7 @@ function handleContinuousScroll() {
   box-sizing: border-box;
   height: 100dvh;
   overflow: hidden;
-  padding: calc(var(--safe-top) + 76px) 24px calc(var(--safe-bottom) + 128px);
+  padding: calc(var(--safe-top) + 44px) 24px calc(var(--safe-bottom) + 68px);
 }
 
 .gallery-text-viewport {
@@ -1693,6 +1701,10 @@ function handleContinuousScroll() {
   max-width: 100%;
   height: auto;
   margin: 24px auto;
+  border-radius: 0;
+}
+
+.reader-text-page.rounded-media :deep(img) {
   border-radius: 12px;
 }
 

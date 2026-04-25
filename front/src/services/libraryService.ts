@@ -139,6 +139,28 @@ function cleanEpubText(value?: string | null) {
   return value?.replace(/\s+/g, ' ').trim() || ''
 }
 
+function isGenericEpubTitle(value?: string | null) {
+  const title = cleanEpubText(value)
+  if (!title) return true
+
+  const compact = title.replace(/[\s._-]+/g, '')
+  return [
+    /^\[?\s*title\s+here\s*\]?$/i,
+    /^section\d+(?:[_-]\d+)*$/i,
+    /^(cover|nav|toc|contents|tableofcontents)$/i,
+    /^(x?html|text|body|part)\d{3,}$/i,
+  ].some((pattern) => pattern.test(title) || pattern.test(compact))
+}
+
+function firstUsefulEpubTitle(elements: Element[], maxLength = 80) {
+  for (const element of elements) {
+    const text = cleanEpubText(element.textContent)
+    if (!text || text.length > maxLength || isGenericEpubTitle(text)) continue
+    return text
+  }
+  return ''
+}
+
 function normalizeTxtText(text: string) {
   return text
     .replace(/^\uFEFF/, '')
@@ -330,15 +352,35 @@ function parseEpubNcxChapters(xml: string, baseDir: string) {
 
 function titleFromEpubDocument(html: string) {
   const parsed = new DOMParser().parseFromString(html, 'text/html')
-  return cleanEpubText(parsed.querySelector('h1, h2, h3, h4, h5, h6, title')?.textContent)
+  const body = parsed.body || parsed.documentElement
+  const headingTitle = firstUsefulEpubTitle(Array.from(body.querySelectorAll('h1, h2, h3, h4, h5, h6')))
+  if (headingTitle) return headingTitle
+
+  const shortBlockTitle = firstUsefulEpubTitle(Array.from(body.querySelectorAll('p, div, span')), 48)
+  if (shortBlockTitle) return shortBlockTitle
+
+  const documentTitle = cleanEpubText(parsed.querySelector('title')?.textContent)
+  return isGenericEpubTitle(documentTitle) ? '' : documentTitle
 }
 
-function chaptersFromImageRecords(records: Array<Pick<MangaImageRecord, 'id' | 'index' | 'name' | 'kind' | 'chapterTitle' | 'chapterHref' | 'chapterIndex'>>) {
+function effectiveChapterTitle(record: Pick<MangaImageRecord, 'name' | 'kind' | 'html' | 'chapterTitle'>) {
+  const storedTitle = cleanEpubText(record.chapterTitle)
+  if (!isGenericEpubTitle(storedTitle)) return storedTitle
+
+  if (record.kind === 'text' && record.html) {
+    const documentTitle = titleFromEpubDocument(record.html)
+    if (documentTitle) return documentTitle
+  }
+
+  return storedTitle || cleanEpubText(record.name)
+}
+
+function chaptersFromImageRecords(records: Array<Pick<MangaImageRecord, 'id' | 'index' | 'name' | 'kind' | 'html' | 'chapterTitle' | 'chapterHref' | 'chapterIndex'>>) {
   const chapters: ReaderChapter[] = []
   const seen = new Set<string>()
 
   for (const record of records.sort((left, right) => left.index - right.index)) {
-    const title = record.chapterTitle?.trim() || (record.kind === 'text' ? record.name.trim() : '')
+    const title = effectiveChapterTitle(record)
     if (!title) continue
 
     const key = record.chapterHref
@@ -595,8 +637,13 @@ export const libraryService = {
           chapterIndex = fallbackChapterIndexByPath.get(normalized) ?? 0
         }
 
+        const fallbackChapterTitle = cleanEpubText(fallbackTitle)
+        const preferredTitle = mappedTitle && !isGenericEpubTitle(mappedTitle)
+          ? mappedTitle
+          : fallbackChapterTitle
+
         return {
-          chapterTitle: cleanEpubText(mappedTitle || fallbackTitle) || `章节 ${chapterIndex + 1}`,
+          chapterTitle: cleanEpubText(preferredTitle) || `章节 ${chapterIndex + 1}`,
           chapterHref: normalized,
           chapterIndex,
         }
@@ -737,7 +784,7 @@ export const libraryService = {
         throw new Error('EPUB 里没有可导入的正文或图片')
       }
 
-      const mangaTitle = cleanManualTitle(title) || epubTitle || cleanEpubTitle(file.name)
+      const mangaTitle = cleanManualTitle(title) || (isGenericEpubTitle(epubTitle) ? '' : epubTitle) || cleanEpubTitle(file.name)
       return this.importReaderAssets(mangaTitle, pages, 'epub')
     } catch (error) {
       throw normalizeArchiveError(error, '导入 EPUB')
@@ -980,7 +1027,7 @@ export const libraryService = {
         type: image.type,
         kind: image.kind || 'image',
         html: image.html,
-        chapterTitle: image.chapterTitle,
+        chapterTitle: effectiveChapterTitle(image),
         chapterHref: image.chapterHref,
         chapterIndex: image.chapterIndex,
         src: image.kind === 'text' ? '' : image.blob ? URL.createObjectURL(image.blob) : '',
