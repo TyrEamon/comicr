@@ -19,6 +19,7 @@ def intEnvOrDefault = { name, fallback ->
 def appVersionCode = intEnvOrDefault('COMICR_VERSION_CODE', 1)
 def appVersionName = envOrDefault('COMICR_VERSION_NAME', '1.0')
 def releaseStorePath = envOrDefault('COMICR_KEYSTORE_PATH', '')
+def releaseStoreFile = releaseStorePath ? rootProject.file(releaseStorePath) : null
 def releaseStorePassword = envOrDefault('COMICR_KEYSTORE_PASSWORD', '')
 def releaseKeyAlias = envOrDefault('COMICR_KEY_ALIAS', '')
 def releaseKeyPassword = envOrDefault('COMICR_KEY_PASSWORD', '')
@@ -27,7 +28,7 @@ def hasReleaseSigning = releaseStorePath
     && releaseStorePassword
     && releaseKeyAlias
     && releaseKeyPassword
-    && file(releaseStorePath).exists()
+    && releaseStoreFile.exists()
 
 android {
     namespace "com.tyr.comicsapp"
@@ -51,7 +52,7 @@ android {
     signingConfigs {
         if (hasReleaseSigning) {
             release {
-                storeFile file(releaseStorePath)
+                storeFile releaseStoreFile
                 storePassword releaseStorePassword
                 keyAlias releaseKeyAlias
                 keyPassword releaseKeyPassword

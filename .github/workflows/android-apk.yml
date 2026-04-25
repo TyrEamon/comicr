@@ -82,12 +82,20 @@ jobs:
           COMICR_KEYSTORE_TYPE: ${{ secrets.COMICR_KEYSTORE_TYPE }}
         run: |
           mkdir -p release
+          APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)/apksigner"
           if [ -f "$COMICR_KEYSTORE_PATH" ] \
             && [ -n "$COMICR_KEYSTORE_PASSWORD" ] \
             && [ -n "$COMICR_KEY_ALIAS" ] \
             && [ -n "$COMICR_KEY_PASSWORD" ]; then
             ./gradlew assembleRelease
-            cp app/build/outputs/apk/release/*.apk release/comicr.apk
+            RELEASE_APK="$(find app/build/outputs/apk/release -name '*.apk' ! -name '*unsigned*' | head -n 1)"
+            if [ -z "$RELEASE_APK" ]; then
+              echo "::error::Release signing was configured, but Gradle did not produce a signed release APK."
+              find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print
+              exit 1
+            fi
+            cp "$RELEASE_APK" release/comicr.apk
+            "$APKSIGNER" verify --verbose --print-certs release/comicr.apk
           else
             echo "::warning::Signing secrets are not configured; building debug APK. This APK may not support stable overwrite updates across CI runs."
             ./gradlew assembleDebug
