@@ -4,14 +4,36 @@
       <p class="label-caps">书库</p>
 
       <div class="library-controls" aria-label="书库工具">
-        <label class="sort-control">
-          <ArrowDownAZ :size="16" aria-hidden="true" />
-          <select v-model="sortMode" aria-label="书库排序">
-            <option v-for="option in sortOptions" :key="option.id" :value="option.id">
-              {{ option.label }}
-            </option>
-          </select>
-        </label>
+        <div ref="sortPanelRef" class="sort-control">
+          <button
+            class="sort-button"
+            :class="{ active: sortPanelVisible }"
+            type="button"
+            aria-haspopup="menu"
+            :aria-expanded="sortPanelVisible"
+            @click="toggleSortPanel"
+          >
+            <ArrowDownAZ :size="16" aria-hidden="true" />
+            <span>{{ sortModeLabel }}</span>
+            <ChevronDown :size="15" aria-hidden="true" />
+          </button>
+
+          <div v-if="sortPanelVisible" class="sort-popover surface-card" role="menu" aria-label="排序方式">
+            <button
+              v-for="option in sortOptions"
+              :key="option.id"
+              class="sort-option"
+              :class="{ active: sortMode === option.id }"
+              type="button"
+              role="menuitemradio"
+              :aria-checked="sortMode === option.id"
+              @click="selectSortMode(option.id)"
+            >
+              <span>{{ option.label }}</span>
+              <Check v-if="sortMode === option.id" :size="16" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
 
         <div ref="filterPanelRef" class="filter-control">
           <button
@@ -20,7 +42,7 @@
             type="button"
             aria-haspopup="menu"
             :aria-expanded="filterPanelVisible"
-            @click="filterPanelVisible = !filterPanelVisible"
+            @click="toggleFilterPanel"
           >
             <SlidersHorizontal :size="16" aria-hidden="true" />
             <span>过滤设置</span>
@@ -95,7 +117,7 @@ import { searchService } from '@/services/searchService'
 import { libraryService } from '@/services/libraryService'
 import type { MangaItem } from '@/services/types'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { ArrowDownAZ, BookOpen, Check, SlidersHorizontal } from 'lucide-vue-next'
+import { ArrowDownAZ, BookOpen, Check, ChevronDown, SlidersHorizontal } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import MangaGrid from './components/MangaGrid.vue'
@@ -149,7 +171,9 @@ const scrollByTab = ref<Record<LibraryTab, number>>(initialViewState.scrollByTab
 const contentTransitionName = ref('library-slide-next')
 const sortMode = ref<LibrarySortMode>(initialPreferences.sortMode)
 const allFilters = ref<Record<AllFilterKey, boolean>>(initialPreferences.allFilters)
+const sortPanelVisible = ref(false)
 const filterPanelVisible = ref(false)
+const sortPanelRef = ref<HTMLElement | null>(null)
 const filterPanelRef = ref<HTMLElement | null>(null)
 const touchStartX = ref(0)
 const touchStartY = ref(0)
@@ -158,6 +182,7 @@ const pointerStartY = ref(0)
 const pointerTracking = ref(false)
 
 const activeAllFilterCount = computed(() => allFilterOptions.filter((option) => allFilters.value[option.id]).length)
+const sortModeLabel = computed(() => sortOptions.find((option) => option.id === sortMode.value)?.label ?? '名称排序')
 
 const visibleMangas = computed(() => {
   const query = searchQuery.value.trim()
@@ -238,6 +263,7 @@ function setActiveTab(tab: LibraryTab) {
   const nextIndex = tabItems.findIndex((item) => item.id === tab)
   contentTransitionName.value = nextIndex >= currentIndex ? 'library-slide-next' : 'library-slide-prev'
   activeTab.value = tab
+  sortPanelVisible.value = false
   filterPanelVisible.value = false
   void nextTick(() => restoreScrollForTab(tab))
 }
@@ -287,8 +313,29 @@ function handlePointerCancel() {
 function handleDocumentPointerDown(event: PointerEvent) {
   const target = event.target
   if (!(target instanceof Node)) return
+  if (sortPanelRef.value?.contains(target)) return
   if (filterPanelRef.value?.contains(target)) return
+  sortPanelVisible.value = false
   filterPanelVisible.value = false
+}
+
+function toggleSortPanel() {
+  sortPanelVisible.value = !sortPanelVisible.value
+  if (sortPanelVisible.value) {
+    filterPanelVisible.value = false
+  }
+}
+
+function selectSortMode(mode: LibrarySortMode) {
+  sortMode.value = mode
+  sortPanelVisible.value = false
+}
+
+function toggleFilterPanel() {
+  filterPanelVisible.value = !filterPanelVisible.value
+  if (filterPanelVisible.value) {
+    sortPanelVisible.value = false
+  }
 }
 
 function handleAllFilterChange(filter: AllFilterKey, event: Event) {
@@ -490,29 +537,91 @@ function compareByName(left: MangaItem, right: MangaItem) {
 }
 
 .sort-control {
-  display: inline-flex;
-  min-height: 38px;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid rgba(153, 143, 131, 0.24);
-  border-radius: 12px;
-  padding: 0 10px;
-  color: rgba(209, 197, 183, 0.72);
-  background: rgba(21, 21, 21, 0.72);
+  position: relative;
 }
 
-.sort-control select {
-  border: 0;
+.sort-button {
+  display: inline-flex;
+  min-height: 44px;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid rgba(153, 143, 131, 0.24);
+  border-radius: 14px;
+  padding: 0 13px;
   color: var(--color-soft);
-  background: transparent;
-  outline: none;
+  background: rgba(21, 21, 21, 0.72);
+  cursor: pointer;
   font-size: 12px;
   font-weight: 700;
+  transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
 }
 
-.sort-control option {
-  color: var(--color-text);
+.sort-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sort-button.active,
+.sort-button:hover,
+.sort-button:focus-visible {
+  border-color: rgba(225, 194, 150, 0.5);
+  color: var(--color-accent-bright);
+  background: rgba(184, 155, 114, 0.1);
+  outline: none;
+}
+
+.sort-popover {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 10px);
+  z-index: 8;
+  width: min(238px, calc(100vw - 40px));
+  padding: 8px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
+}
+
+.sort-popover::before {
+  position: absolute;
+  left: 24px;
+  top: -6px;
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
   background: var(--color-surface);
+  content: "";
+  transform: rotate(45deg);
+}
+
+.sort-option {
+  display: grid;
+  width: 100%;
+  min-height: 48px;
+  grid-template-columns: 1fr 20px;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 12px;
+  color: rgba(209, 197, 183, 0.78);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sort-option:hover,
+.sort-option:focus-visible {
+  color: var(--color-text);
+  background: rgba(184, 155, 114, 0.08);
+  outline: none;
+}
+
+.sort-option.active {
+  color: var(--color-accent-bright);
+  background: rgba(184, 155, 114, 0.12);
 }
 
 .filter-control {
@@ -521,11 +630,11 @@ function compareByName(left: MangaItem, right: MangaItem) {
 
 .filter-button {
   display: inline-flex;
-  min-height: 38px;
+  min-height: 44px;
   align-items: center;
   gap: 8px;
   border: 1px solid rgba(153, 143, 131, 0.24);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 0 12px;
   color: rgba(209, 197, 183, 0.72);
   background: rgba(21, 21, 21, 0.72);
@@ -536,6 +645,13 @@ function compareByName(left: MangaItem, right: MangaItem) {
   border-color: rgba(225, 194, 150, 0.5);
   color: var(--color-accent-bright);
   background: rgba(184, 155, 114, 0.1);
+}
+
+.filter-button:hover,
+.filter-button:focus-visible {
+  border-color: rgba(225, 194, 150, 0.5);
+  color: var(--color-accent-bright);
+  outline: none;
 }
 
 .filter-popover {
@@ -564,7 +680,7 @@ function compareByName(left: MangaItem, right: MangaItem) {
 .filter-option {
   position: relative;
   display: grid;
-  min-height: 42px;
+  min-height: 48px;
   grid-template-columns: 20px 1fr 18px;
   align-items: center;
   gap: 8px;
@@ -574,7 +690,8 @@ function compareByName(left: MangaItem, right: MangaItem) {
   cursor: pointer;
 }
 
-.filter-option:hover {
+.filter-option:hover,
+.filter-option:focus-within {
   background: rgba(184, 155, 114, 0.08);
 }
 
@@ -715,7 +832,7 @@ function compareByName(left: MangaItem, right: MangaItem) {
     flex: 1;
   }
 
-  .sort-control select {
+  .sort-button {
     width: 100%;
   }
 

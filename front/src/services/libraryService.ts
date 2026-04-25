@@ -612,7 +612,7 @@ export const libraryService = {
     }
   },
 
-  async importEpubFile(file: File, title?: string) {
+  async importEpubFile(file: File, title?: string, options?: { id?: string; localPath?: string }) {
     try {
       const zip = await JSZip.loadAsync(file)
       const entries = Object.values(zip.files).filter((entry) => !entry.dir)
@@ -785,13 +785,13 @@ export const libraryService = {
       }
 
       const mangaTitle = cleanManualTitle(title) || (isGenericEpubTitle(epubTitle) ? '' : epubTitle) || cleanEpubTitle(file.name)
-      return this.importReaderAssets(mangaTitle, pages, 'epub')
+      return this.importReaderAssets(mangaTitle, pages, 'epub', options)
     } catch (error) {
       throw normalizeArchiveError(error, '导入 EPUB')
     }
   },
 
-  async importTextFile(file: File, title?: string) {
+  async importTextFile(file: File, title?: string, options?: { id?: string; localPath?: string }) {
     const text = normalizeTxtText(decodeTextBuffer(await file.arrayBuffer()))
     if (!text) {
       throw new Error('TXT 里没有可导入的正文')
@@ -820,7 +820,7 @@ export const libraryService = {
     }
 
     const mangaTitle = cleanManualTitle(title) || cleanTxtTitle(file.name)
-    return this.importReaderAssets(mangaTitle, pages, 'txt')
+    return this.importReaderAssets(mangaTitle, pages, 'txt', options)
   },
 
   async importImageFiles(files: File[], source: MangaSource = 'archive', title?: string) {
@@ -861,23 +861,28 @@ export const libraryService = {
     title: string,
     assets: ReaderAssetInput[],
     source: MangaSource = 'download',
+    options?: { id?: string; localPath?: string },
   ) {
     if (assets.length === 0) {
       throw new Error('没有可导入的页面')
     }
 
     const now = Date.now()
-    const mangaId = randomId('manga')
+    const mangaId = options?.id || randomId('manga')
+    const existing = options?.id ? await getRecord<MangaItem>('mangas', mangaId) : undefined
     const manga: MangaItem = {
       id: mangaId,
       title: title.trim() || '未命名漫画',
-      localPath: mangaId,
+      localPath: options?.localPath || mangaId,
       imageCount: assets.length,
       source,
-      addedAt: now,
+      addedAt: existing?.addedAt ?? now,
       updatedAt: now,
     }
 
+    if (existing) {
+      await deleteImagesByManga(mangaId)
+    }
     await putRecord('mangas', manga)
 
     for (const [index, asset] of assets.entries()) {

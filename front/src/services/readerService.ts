@@ -17,8 +17,8 @@ export interface ReaderPreferences {
 const READER_PREFERENCES_KEY = 'comics-app:reader-preferences:v1'
 
 export const readerTextPreferenceLimits = {
-  fontSize: { min: 14, max: 26, step: 1, defaultValue: 18 },
-  lineHeight: { min: 1.4, max: 2.4, step: 0.05, defaultValue: 1.86 },
+  fontSize: { min: 14, max: 26, step: 1, defaultValue: 16 },
+  lineHeight: { min: 1.4, max: 2.4, step: 0.05, defaultValue: 1.7 },
   indentEm: { min: 0, max: 2, step: 0.5, defaultValue: 2 },
   paragraphSpacingEm: { min: 0.4, max: 1.8, step: 0.1, defaultValue: 1 },
 } as const

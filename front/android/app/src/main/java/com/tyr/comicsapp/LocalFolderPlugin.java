@@ -96,6 +96,29 @@ public class LocalFolderPlugin extends Plugin {
         });
     }
 
+    @PluginMethod
+    public void readFile(PluginCall call) {
+        String uriValue = call.getString("uri");
+        if (uriValue == null || uriValue.isEmpty()) {
+            call.reject("缂哄皯鏂囦欢鍦板潃");
+            return;
+        }
+
+        Uri uri = Uri.parse(uriValue);
+
+        scannerExecutor.execute(() -> {
+            try {
+                JSObject response = new JSObject();
+                response.put("name", queryDisplayName(uri, "document"));
+                response.put("type", mimeType(uri));
+                response.put("base64", readBase64(uri));
+                resolveOnMain(call, response);
+            } catch (Exception error) {
+                rejectOnMain(call, error.getMessage() == null ? "璇诲彇鏂囦欢澶辫触" : error.getMessage());
+            }
+        });
+    }
+
     @ActivityCallback
     private void pickFolderResult(PluginCall call, ActivityResult result) {
         if (call == null) return;
@@ -134,7 +157,7 @@ public class LocalFolderPlugin extends Plugin {
     private JSObject buildFolderResponse(DocumentFile root, Uri treeUri) throws Exception {
         List<ScannedManga> mangas = scanRoot(root, treeUri);
         if (mangas.isEmpty()) {
-            throw new Exception("文件夹里没有识别到漫画目录或压缩包");
+            throw new Exception("文件夹里没有识别到漫画目录、压缩包、EPUB 或 TXT");
         }
 
         JSArray mangaItems = new JSArray();
@@ -146,6 +169,7 @@ public class LocalFolderPlugin extends Plugin {
             item.put("structureType", manga.structureType);
             item.put("sourceType", manga.sourceType);
             item.put("sourceKey", manga.sourceKey);
+            if (manga.sourceVersionKey != null) item.put("sourceVersionKey", manga.sourceVersionKey);
             item.put("pages", pagesToJson(manga.pages));
             mangaItems.put(item);
         }
@@ -169,6 +193,7 @@ public class LocalFolderPlugin extends Plugin {
         }
 
         appendArchiveMangas(mangas, rootSnapshot.archiveFiles);
+        appendReaderMangas(mangas, rootSnapshot.readerFiles);
 
         List<DocumentFile> childDirs = sortedFiles(rootSnapshot.childDirs);
         for (DocumentFile child : childDirs) {
@@ -178,6 +203,7 @@ public class LocalFolderPlugin extends Plugin {
             ScannedManga manga = buildManga(childSnapshot, null, false);
             if (manga != null) mangas.add(manga);
             appendArchiveMangas(mangas, childSnapshot.archiveFiles);
+            appendReaderMangas(mangas, childSnapshot.readerFiles);
         }
 
         return mangas;
@@ -187,6 +213,14 @@ public class LocalFolderPlugin extends Plugin {
         for (DocumentFile archive : sortedFiles(archiveFiles)) {
             if (mangas.size() >= MAX_MANGAS) return;
             ScannedManga manga = buildArchiveManga(archive);
+            if (manga != null) mangas.add(manga);
+        }
+    }
+
+    private void appendReaderMangas(List<ScannedManga> mangas, List<DocumentFile> readerFiles) {
+        for (DocumentFile file : sortedFiles(readerFiles)) {
+            if (mangas.size() >= MAX_MANGAS) return;
+            ScannedManga manga = buildReaderManga(file);
             if (manga != null) mangas.add(manga);
         }
     }
@@ -247,6 +281,7 @@ public class LocalFolderPlugin extends Plugin {
             structureType,
             "folder",
             mangaDir.uri,
+            null,
             pages
         );
     }
@@ -262,6 +297,26 @@ public class LocalFolderPlugin extends Plugin {
             "archive",
             "archive",
             archive.getUri().toString(),
+            versionKeyFor(archive),
+            pages
+        );
+    }
+
+    private ScannedManga buildReaderManga(DocumentFile file) {
+        String name = safeName(file, "document");
+        String lower = name.toLowerCase(Locale.ROOT);
+        String sourceType = lower.endsWith(".epub") ? "epub" : "txt";
+        String title = cleanReaderTitle(name, sourceType);
+        List<PageFile> pages = new ArrayList<>();
+        pages.add(new PageFile(name, mimeType(file.getUri()), file.getUri().toString(), null, null));
+
+        return new ScannedManga(
+            UUID.randomUUID().toString(),
+            title,
+            sourceType,
+            sourceType,
+            file.getUri().toString(),
+            versionKeyFor(file),
             pages
         );
     }
@@ -270,6 +325,7 @@ public class LocalFolderPlugin extends Plugin {
         List<DocumentFile> imageFiles = new ArrayList<>();
         List<DocumentFile> childDirs = new ArrayList<>();
         List<DocumentFile> archiveFiles = new ArrayList<>();
+        List<DocumentFile> readerFiles = new ArrayList<>();
 
         for (DocumentFile file : folder.listFiles()) {
             if (file.isDirectory()) {
@@ -278,13 +334,16 @@ public class LocalFolderPlugin extends Plugin {
                 imageFiles.add(file);
             } else if (isArchive(file)) {
                 archiveFiles.add(file);
+            } else if (isReaderFile(file)) {
+                readerFiles.add(file);
             }
         }
 
         imageFiles = sortedFiles(imageFiles);
         childDirs = sortedFiles(childDirs);
         archiveFiles = sortedFiles(archiveFiles);
-        return new DirectorySnapshot(safeName(folder, "未命名目录"), folder.getUri().toString(), imageFiles, childDirs, archiveFiles);
+        readerFiles = sortedFiles(readerFiles);
+        return new DirectorySnapshot(safeName(folder, "未命名目录"), folder.getUri().toString(), imageFiles, childDirs, archiveFiles, readerFiles);
     }
 
     private List<DirectorySnapshot> imageChildSnapshots(DirectorySnapshot folder) {
@@ -344,6 +403,14 @@ public class LocalFolderPlugin extends Plugin {
 
         String lower = name.toLowerCase(Locale.ROOT);
         return lower.endsWith(".zip") || lower.endsWith(".cbz");
+    }
+
+    private boolean isReaderFile(DocumentFile file) {
+        String name = file.getName();
+        String type = file.getType();
+        String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".epub") || lower.endsWith(".txt")) return true;
+        return "application/epub+zip".equals(type) || "text/plain".equals(type);
     }
 
     private List<PageFile> scanArchivePages(Uri archiveUri) {
@@ -504,6 +571,8 @@ public class LocalFolderPlugin extends Plugin {
 
         String name = queryDisplayName(uri, "");
         String lower = name.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".epub")) return "application/epub+zip";
+        if (lower.endsWith(".txt")) return "text/plain";
         if (lower.endsWith(".png")) return "image/png";
         if (lower.endsWith(".webp")) return "image/webp";
         if (lower.endsWith(".avif")) return "image/avif";
@@ -512,6 +581,8 @@ public class LocalFolderPlugin extends Plugin {
 
     private String mimeType(String name) {
         String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".epub")) return "application/epub+zip";
+        if (lower.endsWith(".txt")) return "text/plain";
         if (lower.endsWith(".png")) return "image/png";
         if (lower.endsWith(".webp")) return "image/webp";
         if (lower.endsWith(".gif")) return "image/gif";
@@ -529,6 +600,17 @@ public class LocalFolderPlugin extends Plugin {
         String safeName = name == null || name.isEmpty() ? "压缩包漫画" : name;
         String title = safeName.replaceAll("(?i)\\.(zip|cbz)$", "").trim();
         return title.isEmpty() ? "压缩包漫画" : title;
+    }
+
+    private String cleanReaderTitle(String name, String sourceType) {
+        String fallback = "epub".equals(sourceType) ? "未命名漫画" : "未命名小说";
+        String safeName = name == null || name.isEmpty() ? fallback : name;
+        String title = safeName.replaceAll("(?i)\\.(epub|txt)$", "").trim();
+        return title.isEmpty() ? fallback : title;
+    }
+
+    private String versionKeyFor(DocumentFile file) {
+        return file.getUri().toString() + ":" + file.lastModified() + ":" + file.length();
     }
 
     private String safeName(DocumentFile file, String fallback) {
@@ -610,13 +692,15 @@ public class LocalFolderPlugin extends Plugin {
         final List<DocumentFile> imageFiles;
         final List<DocumentFile> childDirs;
         final List<DocumentFile> archiveFiles;
+        final List<DocumentFile> readerFiles;
 
-        DirectorySnapshot(String name, String uri, List<DocumentFile> imageFiles, List<DocumentFile> childDirs, List<DocumentFile> archiveFiles) {
+        DirectorySnapshot(String name, String uri, List<DocumentFile> imageFiles, List<DocumentFile> childDirs, List<DocumentFile> archiveFiles, List<DocumentFile> readerFiles) {
             this.name = name;
             this.uri = uri;
             this.imageFiles = imageFiles;
             this.childDirs = childDirs;
             this.archiveFiles = archiveFiles;
+            this.readerFiles = readerFiles;
         }
     }
 
@@ -626,14 +710,16 @@ public class LocalFolderPlugin extends Plugin {
         final String structureType;
         final String sourceType;
         final String sourceKey;
+        final String sourceVersionKey;
         final List<PageFile> pages;
 
-        ScannedManga(String id, String title, String structureType, String sourceType, String sourceKey, List<PageFile> pages) {
+        ScannedManga(String id, String title, String structureType, String sourceType, String sourceKey, String sourceVersionKey, List<PageFile> pages) {
             this.id = id;
             this.title = title;
             this.structureType = structureType;
             this.sourceType = sourceType;
             this.sourceKey = sourceKey;
+            this.sourceVersionKey = sourceVersionKey;
             this.pages = pages;
         }
     }

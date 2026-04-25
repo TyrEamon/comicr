@@ -555,15 +555,18 @@ async function importLocalLibraryItems(
   for (const [index, folder] of folders.entries()) {
     const title = folders.length === 1 ? manualTitle || folder.title : folder.title
     const mangaId = libraryService.stableImportId(folder.sourceType, folder.sourceKey)
-    const localPath = `${folder.sourceType}:${folder.sourceKey}`
+    const localPath = `${folder.sourceType}:${folder.sourceVersionKey || folder.sourceKey}`
     const existing = await libraryService.getManga(mangaId)
-    if (existing?.localPath === localPath && existing.imageCount === folder.imageCount) {
+    const isReaderFile = folder.sourceType === 'epub' || folder.sourceType === 'txt'
+    if (existing?.localPath === localPath && (isReaderFile || existing.imageCount === folder.imageCount)) {
       continue
     }
 
     message.value = `正在保存索引 ${index + 1}/${folders.length}：${title}`
 
-    const manga = folder.sourceType === 'archive'
+    const manga = isReaderFile
+      ? await importLocalReaderFile(folder, title, mangaId, localPath)
+      : folder.sourceType === 'archive'
       ? await library.importArchiveRefs(
         title,
         folder.images
@@ -600,6 +603,23 @@ async function importLocalLibraryItems(
     totalImages,
     lastManga,
   }
+}
+
+async function importLocalReaderFile(
+  folder: Awaited<ReturnType<typeof localFolderService.pickFolder>>[number],
+  title: string,
+  mangaId: string,
+  localPath: string,
+) {
+  const fileRef = folder.images.find((image) => image.uri)
+  if (!fileRef?.uri) {
+    throw new Error(`${title} 缺少可读取的文件地址`)
+  }
+
+  const file = await localFolderService.readFile(fileRef.uri, fileRef.type)
+  return folder.sourceType === 'epub'
+    ? libraryService.importEpubFile(file, title, { id: mangaId, localPath })
+    : libraryService.importTextFile(file, title, { id: mangaId, localPath })
 }
 
 async function refreshCloudCacheStats() {

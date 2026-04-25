@@ -8,13 +8,16 @@ interface NativeFolderPage {
   entryName?: string
 }
 
+type NativeFolderSourceType = 'folder' | 'archive' | 'epub' | 'txt'
+
 interface NativeFolderManga {
   id: string
   title: string
   imageCount: number
-  structureType: 'single' | 'nested' | 'chapters' | 'archive'
-  sourceType?: 'folder' | 'archive'
+  structureType: 'single' | 'nested' | 'chapters' | 'archive' | 'epub' | 'txt'
+  sourceType?: NativeFolderSourceType
   sourceKey?: string
+  sourceVersionKey?: string
   pages: NativeFolderPage[]
 }
 
@@ -29,16 +32,24 @@ interface NativeImageReadResult {
   base64: string
 }
 
+interface NativeFileReadResult {
+  name: string
+  type: string
+  base64: string
+}
+
 interface LocalFolderPlugin {
   pickFolder(): Promise<NativeFolderScanResult>
   scanFolder(options: { uri: string }): Promise<NativeFolderScanResult>
   readImage(options: { uri: string }): Promise<NativeImageReadResult>
+  readFile(options: { uri: string }): Promise<NativeFileReadResult>
 }
 
 export interface LocalFolderImport {
   title: string
-  sourceType: 'folder' | 'archive'
+  sourceType: NativeFolderSourceType
   sourceKey: string
+  sourceVersionKey?: string
   images: Array<{ name: string; type: string; uri?: string; archiveUri?: string; entryName?: string }>
   imageCount: number
   structureType: NativeFolderManga['structureType']
@@ -114,6 +125,7 @@ function toImports(scan: NativeFolderScanResult, onProgress?: (progress: LocalFo
       structureType: manga.structureType,
       sourceType,
       sourceKey: manga.sourceKey || `${scan.rootUri}:${manga.title}`,
+      sourceVersionKey: manga.sourceVersionKey,
       images: manga.pages.map((image) => ({
         name: image.name,
         type: image.type,
@@ -187,5 +199,15 @@ export const localFolderService = {
 
     const result = await localFolderPlugin.readImage({ uri })
     return base64ToBlob(result.base64, result.type || fallbackType)
+  },
+
+  async readFile(uri: string, fallbackType = 'application/octet-stream') {
+    if (!this.isAvailable()) {
+      throw new Error('读取授权文件需要 Android APK 环境')
+    }
+
+    const result = await localFolderPlugin.readFile({ uri })
+    const blob = base64ToBlob(result.base64, result.type || fallbackType)
+    return new File([blob], result.name || 'document', { type: blob.type || fallbackType })
   },
 }
