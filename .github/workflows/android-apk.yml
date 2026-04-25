@@ -108,22 +108,42 @@ jobs:
           name: comicr-android-apk
           path: front/android/release/*.apk
 
-      - name: Publish latest APK
+      - name: Publish APK releases
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: debug-latest
-          TITLE: Comicr Latest APK
+          LATEST_TAG: debug-latest
+          LATEST_TITLE: Comicr Latest APK
           COMICR_VERSION_CODE: ${{ github.run_number }}
+          COMICR_VERSION_NAME: 1.0.${{ github.run_number }}
+          VERSION_TAG: apk-v1.0.${{ github.run_number }}
         run: |
-          git tag -f "$TAG" "$GITHUB_SHA"
-          git push --force origin "refs/tags/$TAG"
-
-          NOTES="Latest APK built from commit ${GITHUB_SHA}. versionCode=${COMICR_VERSION_CODE}."
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes "$NOTES" --prerelease
-          else
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" --prerelease
+          APK_PATH="$(find front/android/release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          if [ -z "$APK_PATH" ]; then
+            echo "::error::No APK found in front/android/release."
+            exit 1
           fi
 
-          gh release upload "$TAG" front/android/release/*.apk --repo "$GITHUB_REPOSITORY" --clobber
+          VERSIONED_APK="front/android/release/comicr-${COMICR_VERSION_NAME}.apk"
+          cp "$APK_PATH" "$VERSIONED_APK"
+          NOTES="APK built from commit ${GITHUB_SHA}. versionName=${COMICR_VERSION_NAME}, versionCode=${COMICR_VERSION_CODE}."
+
+          if gh release view "$VERSION_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$VERSION_TAG" --repo "$GITHUB_REPOSITORY" --title "Comicr APK ${COMICR_VERSION_NAME}" --notes "$NOTES" --prerelease
+          else
+            gh release create "$VERSION_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Comicr APK ${COMICR_VERSION_NAME}" --notes "$NOTES" --prerelease
+          fi
+
+          gh release upload "$VERSION_TAG" "$VERSIONED_APK" --repo "$GITHUB_REPOSITORY" --clobber
+
+          git tag -f "$LATEST_TAG" "$GITHUB_SHA"
+          git push --force origin "refs/tags/$LATEST_TAG"
+
+          LATEST_NOTES="Latest APK built from commit ${GITHUB_SHA}. versionName=${COMICR_VERSION_NAME}, versionCode=${COMICR_VERSION_CODE}."
+          if gh release view "$LATEST_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$LATEST_TAG" --repo "$GITHUB_REPOSITORY" --title "$LATEST_TITLE" --notes "$LATEST_NOTES" --prerelease
+          else
+            gh release create "$LATEST_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$LATEST_TITLE" --notes "$LATEST_NOTES" --prerelease
+          fi
+
+          gh release upload "$LATEST_TAG" "$APK_PATH" --repo "$GITHUB_REPOSITORY" --clobber
