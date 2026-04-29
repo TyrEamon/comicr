@@ -171,7 +171,7 @@ const webDavForm = reactive<WebDavConfig>(cloudService.getWebDavConfig())
 const emptyWebDavText = computed(() => (
   webDavLoadFailed.value
     ? 'WebDAV 暂时读取失败，可以稍后点刷新列表。'
-    : '当前目录下还没有漫画文件夹，或者 WebDAV 路径不对。'
+    : '已连接 WebDAV。点击“刷新列表”同步远程目录、封面和页数。'
 ))
 let taskPollTimer: number | undefined
 
@@ -180,7 +180,6 @@ onMounted(async () => {
   await refreshProviders()
   if (webDavConnected.value) {
     await loadCachedWebDavLibrary()
-    await refreshWebDavLibrary()
   }
   syncDownloadTaskMap()
   taskPollTimer = window.setInterval(() => {
