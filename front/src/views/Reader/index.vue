@@ -506,9 +506,9 @@ let imageZoomPinchStartTranslateY = 0
 let imageZoomPinchStartCenterX = 0
 let imageZoomPinchStartCenterY = 0
 const GALLERY_TEXT_PAGE_GAP = 36
-const CONTINUOUS_ZOOM_STEPS = [1, 1.5, 2] as const
-const IMAGE_DOUBLE_TAP_ZOOM = 2
+const CONTINUOUS_DOUBLE_TAP_ZOOM = 2
 const IMAGE_MAX_ZOOM = 4
+const IMAGE_DOUBLE_TAP_ZOOM = IMAGE_MAX_ZOOM
 const IMAGE_ZOOM_RESET_THRESHOLD = 1.05
 const IMAGE_ZOOM_DRAG_THRESHOLD = 4
 
@@ -1674,8 +1674,7 @@ function handleProgressInput(event: Event) {
 }
 
 function nextContinuousZoomScale() {
-  const currentStepIndex = CONTINUOUS_ZOOM_STEPS.findIndex((scale) => scale > continuousZoomScale.value + 0.01)
-  return currentStepIndex >= 0 ? CONTINUOUS_ZOOM_STEPS[currentStepIndex] : CONTINUOUS_ZOOM_STEPS[0]
+  return continuousZoomScale.value > 1 ? 1 : CONTINUOUS_DOUBLE_TAP_ZOOM
 }
 
 function clampContinuousScrollLeft() {
@@ -1752,9 +1751,13 @@ function handleContinuousImageTap(event: MouseEvent, index: number) {
 
 function handleGalleryTap(event: MouseEvent) {
   if (ignoreNextTap.value) {
+    const handledZoomDoubleTap = isGalleryImagePage.value && imageZoomActive.value && handleDoubleTap(event)
     ignoreNextTap.value = false
-    lastTapAt = 0
-    lastTapIndex = -1
+    if (handledZoomDoubleTap) return
+    if (!imageZoomActive.value) {
+      lastTapAt = 0
+      lastTapIndex = -1
+    }
     return
   }
 
