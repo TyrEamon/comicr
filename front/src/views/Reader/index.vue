@@ -78,6 +78,10 @@
         class="reader-stage continuous-stage"
         :class="{ 'continuous-zoomed': continuousZoomed }"
         @click.stop="toggleControls()"
+        @touchstart="handleContinuousTouchStart"
+        @touchmove="handleContinuousTouchMove"
+        @touchend="handleContinuousTouchEnd"
+        @touchcancel="handleContinuousTouchEnd"
         @scroll.passive="handleContinuousScroll"
       >
         <div
@@ -467,6 +471,7 @@ const galleryTextPageCount = ref(1)
 const galleryTextPageWidth = ref(0)
 const galleryVirtualPageCounts = ref<number[]>([])
 const continuousZoomScale = ref(1)
+const continuousPinching = ref(false)
 const imageZoomScale = ref(1)
 const imageZoomTranslateX = ref(0)
 const imageZoomTranslateY = ref(0)
@@ -494,6 +499,9 @@ let chapterSheetHistoryActive = false
 let galleryTextMeasureFrame: number | undefined
 let galleryVirtualMeasureFrame: number | undefined
 let pendingGalleryTextPageTarget: Exclude<GalleryTextPageTarget, 'keep'> = 'start'
+let continuousPinchStartDistance = 0
+let continuousPinchStartScale = 1
+let continuousPinchFrameIndex = 0
 let imageZoomDragStartX = 0
 let imageZoomDragStartY = 0
 let imageZoomDragStartTranslateX = 0
@@ -507,6 +515,8 @@ let imageZoomPinchStartCenterX = 0
 let imageZoomPinchStartCenterY = 0
 const GALLERY_TEXT_PAGE_GAP = 36
 const CONTINUOUS_DOUBLE_TAP_ZOOM = 2
+const CONTINUOUS_MAX_ZOOM = 4
+const CONTINUOUS_ZOOM_RESET_THRESHOLD = 1.05
 const IMAGE_MAX_ZOOM = 4
 const IMAGE_DOUBLE_TAP_ZOOM = IMAGE_MAX_ZOOM
 const IMAGE_ZOOM_RESET_THRESHOLD = 1.05
@@ -517,7 +527,7 @@ const isCloudReader = computed(() => cloudService.isWebDavReaderId(mangaId.value
 const currentImage = computed(() => images.value[currentIndex.value] ?? null)
 const currentTextPageIsStandaloneImage = computed(() => isStandaloneTextImagePage(currentImage.value))
 const isContinuousMode = computed(() => readerMode.value === 'continuous')
-const continuousZoomed = computed(() => isContinuousMode.value && continuousZoomScale.value > 1)
+const continuousZoomed = computed(() => isContinuousMode.value && (continuousZoomScale.value > 1 || continuousPinching.value))
 const lastImageIndex = computed(() => Math.max(0, images.value.length - 1))
 const hasTextPages = computed(() => images.value.some((image) => image.kind === 'text'))
 const isNovelReader = computed(() => hasTextPages.value || manga.value?.source === 'epub' || manga.value?.source === 'txt')
@@ -1677,6 +1687,10 @@ function nextContinuousZoomScale() {
   return continuousZoomScale.value > 1 ? 1 : CONTINUOUS_DOUBLE_TAP_ZOOM
 }
 
+function clampContinuousZoomScale(scale: number) {
+  return Math.min(CONTINUOUS_MAX_ZOOM, Math.max(1, scale))
+}
+
 function clampContinuousScrollLeft() {
   const container = continuousContainer.value
   if (!container) return
@@ -1692,6 +1706,7 @@ function clampContinuousScrollLeft() {
 
 function resetContinuousZoom() {
   continuousZoomScale.value = 1
+  continuousPinching.value = false
   void nextTick(() => {
     const container = continuousContainer.value
     if (container) {
@@ -1700,34 +1715,60 @@ function resetContinuousZoom() {
   })
 }
 
-function setContinuousZoomScale(nextScale: number, index: number, event?: MouseEvent) {
+function continuousFrameIndexAt(clientY: number) {
+  const container = continuousContainer.value
+  if (!container) return currentIndex.value
+
+  let nearestIndex = currentIndex.value
+  let nearestDistance = Number.POSITIVE_INFINITY
+  for (const [index, frame] of continuousFrames.value.entries()) {
+    if (!frame) continue
+    const rect = frame.getBoundingClientRect()
+    if (clientY >= rect.top && clientY <= rect.bottom) return index
+    const distance = Math.min(Math.abs(clientY - rect.top), Math.abs(clientY - rect.bottom))
+    if (distance < nearestDistance) {
+      nearestDistance = distance
+      nearestIndex = index
+    }
+  }
+
+  return nearestIndex
+}
+
+function setContinuousZoomScaleAt(nextScale: number, index: number, anchorClientX: number, anchorClientY: number) {
   const container = continuousContainer.value
   const frame = continuousFrames.value[index]
   const previousScale = continuousZoomScale.value
+  const safeScale = clampContinuousZoomScale(nextScale)
 
   if (!container || !frame) {
-    continuousZoomScale.value = nextScale
+    continuousZoomScale.value = safeScale
     return
   }
 
-  const containerRect = container.getBoundingClientRect()
-  const anchorClientX = event ? event.clientX - containerRect.left : container.clientWidth / 2
-  const anchorClientY = event ? event.clientY - containerRect.top : container.clientHeight / 2
   const anchorOffsetX = container.scrollLeft + anchorClientX
   const anchorOffsetY = Math.max(0, container.scrollTop + anchorClientY - frame.offsetTop)
-  continuousZoomScale.value = nextScale
+  continuousZoomScale.value = safeScale
 
   void nextTick(() => {
     const nextFrame = continuousFrames.value[index]
     if (!nextFrame || !continuousContainer.value) return
 
-    const scaleRatio = previousScale > 0 ? nextScale / previousScale : 1
+    const scaleRatio = previousScale > 0 ? safeScale / previousScale : 1
     const maxScrollLeft = Math.max(0, continuousContainer.value.scrollWidth - continuousContainer.value.clientWidth)
-    const nextScrollLeft = nextScale <= 1 ? 0 : anchorOffsetX * scaleRatio - anchorClientX
+    const nextScrollLeft = safeScale <= 1 ? 0 : anchorOffsetX * scaleRatio - anchorClientX
     continuousContainer.value.scrollLeft = Math.min(maxScrollLeft, Math.max(0, nextScrollLeft))
     continuousContainer.value.scrollTop = Math.max(0, nextFrame.offsetTop + anchorOffsetY * scaleRatio - anchorClientY)
     handleContinuousScroll()
   })
+}
+
+function setContinuousZoomScale(nextScale: number, index: number, event?: MouseEvent) {
+  const container = continuousContainer.value
+  const containerRect = container?.getBoundingClientRect()
+  const anchorClientX = event && containerRect ? event.clientX - containerRect.left : (container?.clientWidth ?? window.innerWidth) / 2
+  const anchorClientY = event && containerRect ? event.clientY - containerRect.top : (container?.clientHeight ?? window.innerHeight) / 2
+  setContinuousZoomScaleAt(nextScale, index, anchorClientX, anchorClientY)
 }
 
 function handleContinuousImageTap(event: MouseEvent, index: number) {
@@ -1747,6 +1788,88 @@ function handleContinuousImageTap(event: MouseEvent, index: number) {
   readerSettingsVisible.value = false
   window.clearTimeout(hideTimer)
   setContinuousZoomScale(nextContinuousZoomScale(), index, event)
+}
+
+function beginContinuousPinch(event: TouchEvent) {
+  if (!isContinuousMode.value || event.touches.length < 2) return false
+
+  const touchA = event.touches[0]
+  const touchB = event.touches[1]
+  if (!touchA || !touchB) return false
+
+  event.preventDefault()
+  const center = touchCenter(touchA, touchB)
+  const container = continuousContainer.value
+  const containerRect = container?.getBoundingClientRect()
+  continuousPinching.value = true
+  continuousPinchStartDistance = Math.max(1, touchDistance(touchA, touchB))
+  continuousPinchStartScale = continuousZoomScale.value
+  continuousPinchFrameIndex = continuousFrameIndexAt(center.y)
+  lastTapAt = 0
+  lastTapIndex = -1
+  controlsVisible.value = false
+  brightnessVisible.value = false
+  pageListVisible.value = false
+  readerSettingsVisible.value = false
+  window.clearTimeout(hideTimer)
+  if (containerRect) {
+    setContinuousZoomScaleAt(continuousZoomScale.value, continuousPinchFrameIndex, center.x - containerRect.left, center.y - containerRect.top)
+  }
+  return true
+}
+
+function updateContinuousPinch(event: TouchEvent) {
+  if (!continuousPinching.value || event.touches.length < 2) return false
+
+  const touchA = event.touches[0]
+  const touchB = event.touches[1]
+  const container = continuousContainer.value
+  const containerRect = container?.getBoundingClientRect()
+  if (!touchA || !touchB || !containerRect) return false
+
+  event.preventDefault()
+  const center = touchCenter(touchA, touchB)
+  const distance = Math.max(1, touchDistance(touchA, touchB))
+  const nextScale = continuousPinchStartScale * (distance / continuousPinchStartDistance)
+  setContinuousZoomScaleAt(nextScale, continuousPinchFrameIndex, center.x - containerRect.left, center.y - containerRect.top)
+  return true
+}
+
+function endContinuousPinch() {
+  if (!continuousPinching.value) return false
+
+  continuousPinching.value = false
+  if (continuousZoomScale.value <= CONTINUOUS_ZOOM_RESET_THRESHOLD) {
+    resetContinuousZoom()
+  } else {
+    clampContinuousScrollLeft()
+  }
+  lastTapAt = 0
+  lastTapIndex = -1
+  return true
+}
+
+function handleContinuousTouchStart(event: TouchEvent) {
+  if (event.touches.length >= 2) {
+    beginContinuousPinch(event)
+  }
+}
+
+function handleContinuousTouchMove(event: TouchEvent) {
+  if (continuousPinching.value) {
+    updateContinuousPinch(event)
+    return
+  }
+
+  if (event.touches.length >= 2) {
+    beginContinuousPinch(event)
+  }
+}
+
+function handleContinuousTouchEnd(event: TouchEvent) {
+  if (continuousPinching.value && event.touches.length < 2) {
+    endContinuousPinch()
+  }
 }
 
 function handleGalleryTap(event: MouseEvent) {
@@ -1856,7 +1979,6 @@ function handleGalleryTouchStart(event: TouchEvent) {
   const touch = event.touches[0] ?? event.changedTouches[0]
   if (!touch) return
   if (imageZoomActive.value) {
-    event.preventDefault()
     beginImageZoomDrag(touch.clientX, touch.clientY)
     return
   }
