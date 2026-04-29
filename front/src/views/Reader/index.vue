@@ -76,6 +76,7 @@
         v-else
         ref="continuousContainer"
         class="reader-stage continuous-stage"
+        :class="{ 'continuous-zoomed': continuousZoomed }"
         @click.stop="toggleControls()"
         @scroll.passive="handleContinuousScroll"
       >
@@ -100,8 +101,8 @@
             :class="{ 'fit-width': fitMode === 'width', rounded: shouldRoundReaderMedia }"
             :src="image.src"
             :alt="image.name"
-            :style="imageStyle"
-            @click.stop="toggleControls()"
+            :style="continuousImageStyle"
+            @click.stop="handleContinuousImageTap($event, index)"
             @error="handleImageError(index)"
           />
           <div v-else class="reader-image-placeholder continuous-placeholder">正在加载第 {{ index + 1 }} 页...</div>
@@ -465,6 +466,7 @@ const galleryTextPageIndex = ref(0)
 const galleryTextPageCount = ref(1)
 const galleryTextPageWidth = ref(0)
 const galleryVirtualPageCounts = ref<number[]>([])
+const continuousZoomScale = ref(1)
 const imageZoomScale = ref(1)
 const imageZoomTranslateX = ref(0)
 const imageZoomTranslateY = ref(0)
@@ -504,6 +506,7 @@ let imageZoomPinchStartTranslateY = 0
 let imageZoomPinchStartCenterX = 0
 let imageZoomPinchStartCenterY = 0
 const GALLERY_TEXT_PAGE_GAP = 36
+const CONTINUOUS_ZOOM_STEPS = [1, 1.5, 2] as const
 const IMAGE_DOUBLE_TAP_ZOOM = 2
 const IMAGE_MAX_ZOOM = 4
 const IMAGE_ZOOM_RESET_THRESHOLD = 1.05
@@ -514,11 +517,17 @@ const isCloudReader = computed(() => cloudService.isWebDavReaderId(mangaId.value
 const currentImage = computed(() => images.value[currentIndex.value] ?? null)
 const currentTextPageIsStandaloneImage = computed(() => isStandaloneTextImagePage(currentImage.value))
 const isContinuousMode = computed(() => readerMode.value === 'continuous')
+const continuousZoomed = computed(() => isContinuousMode.value && continuousZoomScale.value > 1)
 const lastImageIndex = computed(() => Math.max(0, images.value.length - 1))
 const hasTextPages = computed(() => images.value.some((image) => image.kind === 'text'))
 const isNovelReader = computed(() => hasTextPages.value || manga.value?.source === 'epub' || manga.value?.source === 'txt')
 const shouldRoundReaderMedia = computed(() => isNovelReader.value && imageRoundedCorners.value)
 const imageStyle = computed(() => ({ filter: `brightness(${brightness.value}%)` }))
+const continuousImageStyle = computed(() => ({
+  ...imageStyle.value,
+  width: `${continuousZoomScale.value * 100}%`,
+  maxWidth: 'none',
+}))
 const isGalleryImagePage = computed(() => (
   readerMode.value === 'gallery'
   && currentImage.value?.kind !== 'text'
@@ -747,6 +756,7 @@ function handleReaderResize() {
   scheduleGalleryTextPagination()
   scheduleGalleryVirtualPagination()
   clampImageZoom()
+  clampContinuousScrollLeft()
 }
 
 onMounted(async () => {
@@ -857,6 +867,9 @@ watch(currentIndex, (value) => {
 
 watch(readerMode, async (mode) => {
   resetImageZoom()
+  if (mode === 'gallery') {
+    resetContinuousZoom()
+  }
   readerService.updatePreferences({ mode })
   if (mode === 'continuous') {
     await scrollToCurrentIndex('auto')
@@ -868,6 +881,7 @@ watch(readerMode, async (mode) => {
 
 watch(fitMode, async (mode) => {
   resetImageZoom()
+  resetContinuousZoom()
   readerService.updatePreferences({ fitMode: mode })
   if (isContinuousMode.value) {
     await scrollToCurrentIndex('auto')
@@ -1659,6 +1673,83 @@ function handleProgressInput(event: Event) {
   goToPage(nextIndex)
 }
 
+function nextContinuousZoomScale() {
+  const currentStepIndex = CONTINUOUS_ZOOM_STEPS.findIndex((scale) => scale > continuousZoomScale.value + 0.01)
+  return currentStepIndex >= 0 ? CONTINUOUS_ZOOM_STEPS[currentStepIndex] : CONTINUOUS_ZOOM_STEPS[0]
+}
+
+function clampContinuousScrollLeft() {
+  const container = continuousContainer.value
+  if (!container) return
+
+  if (continuousZoomScale.value <= 1) {
+    container.scrollLeft = 0
+    return
+  }
+
+  const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth)
+  container.scrollLeft = Math.min(maxScrollLeft, Math.max(0, container.scrollLeft))
+}
+
+function resetContinuousZoom() {
+  continuousZoomScale.value = 1
+  void nextTick(() => {
+    const container = continuousContainer.value
+    if (container) {
+      container.scrollLeft = 0
+    }
+  })
+}
+
+function setContinuousZoomScale(nextScale: number, index: number, event?: MouseEvent) {
+  const container = continuousContainer.value
+  const frame = continuousFrames.value[index]
+  const previousScale = continuousZoomScale.value
+
+  if (!container || !frame) {
+    continuousZoomScale.value = nextScale
+    return
+  }
+
+  const containerRect = container.getBoundingClientRect()
+  const anchorClientX = event ? event.clientX - containerRect.left : container.clientWidth / 2
+  const anchorClientY = event ? event.clientY - containerRect.top : container.clientHeight / 2
+  const anchorOffsetX = container.scrollLeft + anchorClientX
+  const anchorOffsetY = Math.max(0, container.scrollTop + anchorClientY - frame.offsetTop)
+  continuousZoomScale.value = nextScale
+
+  void nextTick(() => {
+    const nextFrame = continuousFrames.value[index]
+    if (!nextFrame || !continuousContainer.value) return
+
+    const scaleRatio = previousScale > 0 ? nextScale / previousScale : 1
+    const maxScrollLeft = Math.max(0, continuousContainer.value.scrollWidth - continuousContainer.value.clientWidth)
+    const nextScrollLeft = nextScale <= 1 ? 0 : anchorOffsetX * scaleRatio - anchorClientX
+    continuousContainer.value.scrollLeft = Math.min(maxScrollLeft, Math.max(0, nextScrollLeft))
+    continuousContainer.value.scrollTop = Math.max(0, nextFrame.offsetTop + anchorOffsetY * scaleRatio - anchorClientY)
+    handleContinuousScroll()
+  })
+}
+
+function handleContinuousImageTap(event: MouseEvent, index: number) {
+  const now = Date.now()
+  if (now - lastTapAt > 280 || lastTapIndex !== index) {
+    lastTapAt = now
+    lastTapIndex = index
+    toggleControls(true)
+    return
+  }
+
+  lastTapAt = 0
+  lastTapIndex = -1
+  controlsVisible.value = false
+  brightnessVisible.value = false
+  pageListVisible.value = false
+  readerSettingsVisible.value = false
+  window.clearTimeout(hideTimer)
+  setContinuousZoomScale(nextContinuousZoomScale(), index, event)
+}
+
 function handleGalleryTap(event: MouseEvent) {
   if (ignoreNextTap.value) {
     ignoreNextTap.value = false
@@ -1949,12 +2040,19 @@ function handleContinuousScroll() {
 
 .continuous-stage {
   height: 100dvh;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior-y: contain;
   padding: 0 0 var(--safe-bottom);
   scrollbar-width: none;
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
+}
+
+.continuous-stage.continuous-zoomed {
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
 }
 
 .continuous-stage::-webkit-scrollbar {
@@ -2010,8 +2108,8 @@ function handleContinuousScroll() {
 
 .continuous-image {
   display: block;
-  width: 100%;
   height: auto;
+  margin: 0 auto;
   max-height: none;
 }
 
