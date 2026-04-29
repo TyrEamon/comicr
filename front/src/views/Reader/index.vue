@@ -13,10 +13,20 @@
       <div
         v-if="readerMode === 'gallery'"
         class="reader-stage gallery-stage"
-        :class="{ 'text-stage': currentImage?.kind === 'text', 'page-turning': galleryPageTransitionEnabled }"
+        :class="{
+          'text-stage': currentImage?.kind === 'text',
+          'page-turning': galleryPageTransitionEnabled,
+          'zoom-active': imageZoomActive,
+        }"
         @click.stop="handleGalleryTap"
-        @touchstart.passive="handleGalleryTouchStart"
-        @touchend.passive="handleGalleryTouchEnd"
+        @touchstart="handleGalleryTouchStart"
+        @touchmove="handleGalleryTouchMove"
+        @touchend="handleGalleryTouchEnd"
+        @touchcancel="handleGalleryTouchEnd"
+        @mousedown="handleGalleryMouseDown"
+        @mousemove="handleGalleryMouseMove"
+        @mouseup="handleGalleryMouseUp"
+        @mouseleave="handleGalleryMouseUp"
       >
         <Transition :name="galleryTransitionName" :css="galleryPageTransitionEnabled">
           <div
@@ -42,11 +52,18 @@
             </article>
             <img
               v-else-if="currentImage?.src"
+              ref="galleryImageElement"
               class="reader-image"
-              :class="{ 'fit-width': fitMode === 'width', rounded: shouldRoundReaderMedia }"
+              :class="{
+                'fit-width': fitMode === 'width',
+                rounded: shouldRoundReaderMedia,
+                zoomable: isGalleryImagePage,
+                dragging: imageZoomInteracting,
+              }"
               :src="currentImage.src"
               :alt="currentImage.name"
-              :style="imageStyle"
+              :style="galleryImageStyle"
+              draggable="false"
               @click.stop="handleGalleryTap"
               @error="handleImageError(currentIndex)"
             />
@@ -440,6 +457,7 @@ const pageTurnDirection = ref<PageTurnDirection>('next')
 const reducedMotion = ref(false)
 const continuousContainer = ref<HTMLElement | null>(null)
 const continuousFrames = ref<HTMLElement[]>([])
+const galleryImageElement = ref<HTMLImageElement | null>(null)
 const galleryTextViewport = ref<HTMLElement | null>(null)
 const galleryTextFlow = ref<HTMLElement | null>(null)
 const galleryTextMeasureRoot = ref<HTMLElement | null>(null)
@@ -447,6 +465,11 @@ const galleryTextPageIndex = ref(0)
 const galleryTextPageCount = ref(1)
 const galleryTextPageWidth = ref(0)
 const galleryVirtualPageCounts = ref<number[]>([])
+const imageZoomScale = ref(1)
+const imageZoomTranslateX = ref(0)
+const imageZoomTranslateY = ref(0)
+const imageZoomDragging = ref(false)
+const imageZoomPinching = ref(false)
 const loadError = ref('')
 const touchStartX = ref(0)
 const touchStartY = ref(0)
@@ -463,12 +486,28 @@ let readerClockTimer: number | undefined
 let readerBatteryTimer: number | undefined
 let scrollSyncFrame: number | undefined
 let lastTapAt = 0
+let lastTapIndex = -1
 let reducedMotionQuery: MediaQueryList | undefined
 let chapterSheetHistoryActive = false
 let galleryTextMeasureFrame: number | undefined
 let galleryVirtualMeasureFrame: number | undefined
 let pendingGalleryTextPageTarget: Exclude<GalleryTextPageTarget, 'keep'> = 'start'
+let imageZoomDragStartX = 0
+let imageZoomDragStartY = 0
+let imageZoomDragStartTranslateX = 0
+let imageZoomDragStartTranslateY = 0
+let imageZoomMoved = false
+let imageZoomPinchStartDistance = 0
+let imageZoomPinchStartScale = 1
+let imageZoomPinchStartTranslateX = 0
+let imageZoomPinchStartTranslateY = 0
+let imageZoomPinchStartCenterX = 0
+let imageZoomPinchStartCenterY = 0
 const GALLERY_TEXT_PAGE_GAP = 36
+const IMAGE_DOUBLE_TAP_ZOOM = 2
+const IMAGE_MAX_ZOOM = 4
+const IMAGE_ZOOM_RESET_THRESHOLD = 1.05
+const IMAGE_ZOOM_DRAG_THRESHOLD = 4
 
 const mangaId = computed(() => String(route.params.id))
 const isCloudReader = computed(() => cloudService.isWebDavReaderId(mangaId.value))
@@ -480,6 +519,17 @@ const hasTextPages = computed(() => images.value.some((image) => image.kind === 
 const isNovelReader = computed(() => hasTextPages.value || manga.value?.source === 'epub' || manga.value?.source === 'txt')
 const shouldRoundReaderMedia = computed(() => isNovelReader.value && imageRoundedCorners.value)
 const imageStyle = computed(() => ({ filter: `brightness(${brightness.value}%)` }))
+const isGalleryImagePage = computed(() => (
+  readerMode.value === 'gallery'
+  && currentImage.value?.kind !== 'text'
+  && Boolean(currentImage.value?.src)
+))
+const imageZoomActive = computed(() => isGalleryImagePage.value && (imageZoomScale.value > 1 || imageZoomPinching.value))
+const imageZoomInteracting = computed(() => imageZoomDragging.value || imageZoomPinching.value)
+const galleryImageStyle = computed(() => ({
+  ...imageStyle.value,
+  transform: `translate3d(${imageZoomTranslateX.value}px, ${imageZoomTranslateY.value}px, 0) scale(${imageZoomScale.value})`,
+}))
 const textPageStyle = computed(() => ({
   ...imageStyle.value,
   '--reader-text-font-size': `${textFontSize.value}px`,
@@ -696,6 +746,7 @@ function handleReaderPopState() {
 function handleReaderResize() {
   scheduleGalleryTextPagination()
   scheduleGalleryVirtualPagination()
+  clampImageZoom()
 }
 
 onMounted(async () => {
@@ -797,6 +848,7 @@ onUnmounted(() => {
 })
 
 watch(currentIndex, (value) => {
+  resetImageZoom()
   libraryService.saveProgress(mangaId.value, value, images.value.length)
   void ensureImagesAround(value).then(() => pruneLoadedLocalImages(value))
   scheduleGalleryTextPagination(pendingGalleryTextPageTarget)
@@ -804,6 +856,7 @@ watch(currentIndex, (value) => {
 })
 
 watch(readerMode, async (mode) => {
+  resetImageZoom()
   readerService.updatePreferences({ mode })
   if (mode === 'continuous') {
     await scrollToCurrentIndex('auto')
@@ -814,6 +867,7 @@ watch(readerMode, async (mode) => {
 })
 
 watch(fitMode, async (mode) => {
+  resetImageZoom()
   readerService.updatePreferences({ fitMode: mode })
   if (isContinuousMode.value) {
     await scrollToCurrentIndex('auto')
@@ -1414,6 +1468,184 @@ function goToChapterVirtualPage(pageIndex: number) {
   goToPage(endIndex, { animate: false, textPage: 'end' })
 }
 
+function resetImageZoom() {
+  imageZoomScale.value = 1
+  imageZoomTranslateX.value = 0
+  imageZoomTranslateY.value = 0
+  imageZoomDragging.value = false
+  imageZoomPinching.value = false
+  imageZoomMoved = false
+}
+
+function clampZoomScale(scale: number) {
+  return Math.min(IMAGE_MAX_ZOOM, Math.max(1, scale))
+}
+
+function imageZoomBounds(scale = imageZoomScale.value) {
+  const image = galleryImageElement.value
+  if (!image) return { maxX: 0, maxY: 0 }
+
+  const rect = image.getBoundingClientRect()
+  const safeScale = Math.max(1, scale)
+  const baseWidth = image.offsetWidth || rect.width / safeScale
+  const baseHeight = image.offsetHeight || rect.height / safeScale
+
+  return {
+    maxX: Math.max(0, (baseWidth * (safeScale - 1)) / 2),
+    maxY: Math.max(0, (baseHeight * (safeScale - 1)) / 2),
+  }
+}
+
+function clampImageZoom(
+  scale = imageZoomScale.value,
+  translateX = imageZoomTranslateX.value,
+  translateY = imageZoomTranslateY.value,
+) {
+  if (!isGalleryImagePage.value) {
+    resetImageZoom()
+    return
+  }
+
+  const safeScale = clampZoomScale(scale)
+  imageZoomScale.value = safeScale
+  if (safeScale <= 1) {
+    imageZoomTranslateX.value = 0
+    imageZoomTranslateY.value = 0
+    return
+  }
+
+  const { maxX, maxY } = imageZoomBounds(safeScale)
+  imageZoomTranslateX.value = Math.min(maxX, Math.max(-maxX, translateX))
+  imageZoomTranslateY.value = Math.min(maxY, Math.max(-maxY, translateY))
+}
+
+function zoomGalleryImageFromPoint(clientX: number, clientY: number) {
+  const scale = IMAGE_DOUBLE_TAP_ZOOM
+  const centerX = window.innerWidth / 2
+  const centerY = window.innerHeight / 2
+
+  clampImageZoom(scale, (centerX - clientX) * (scale - 1), (centerY - clientY) * (scale - 1))
+}
+
+function beginImageZoomDrag(clientX: number, clientY: number) {
+  if (!imageZoomActive.value) return
+
+  imageZoomDragging.value = true
+  imageZoomMoved = false
+  imageZoomDragStartX = clientX
+  imageZoomDragStartY = clientY
+  imageZoomDragStartTranslateX = imageZoomTranslateX.value
+  imageZoomDragStartTranslateY = imageZoomTranslateY.value
+}
+
+function updateImageZoomDrag(clientX: number, clientY: number) {
+  if (!imageZoomDragging.value || !imageZoomActive.value) return
+
+  const deltaX = clientX - imageZoomDragStartX
+  const deltaY = clientY - imageZoomDragStartY
+  if (Math.abs(deltaX) > IMAGE_ZOOM_DRAG_THRESHOLD || Math.abs(deltaY) > IMAGE_ZOOM_DRAG_THRESHOLD) {
+    imageZoomMoved = true
+  }
+
+  clampImageZoom(
+    imageZoomScale.value,
+    imageZoomDragStartTranslateX + deltaX,
+    imageZoomDragStartTranslateY + deltaY,
+  )
+}
+
+function endImageZoomDrag() {
+  if (!imageZoomDragging.value) return false
+
+  imageZoomDragging.value = false
+  if (imageZoomMoved) {
+    ignoreNextTap.value = true
+  }
+
+  return true
+}
+
+function touchDistance(touchA: Touch, touchB: Touch) {
+  return Math.hypot(touchA.clientX - touchB.clientX, touchA.clientY - touchB.clientY)
+}
+
+function touchCenter(touchA: Touch, touchB: Touch) {
+  return {
+    x: (touchA.clientX + touchB.clientX) / 2,
+    y: (touchA.clientY + touchB.clientY) / 2,
+  }
+}
+
+function beginImageZoomPinch(event: TouchEvent) {
+  if (!isGalleryImagePage.value || event.touches.length < 2) return false
+
+  const touchA = event.touches[0]
+  const touchB = event.touches[1]
+  if (!touchA || !touchB) return false
+
+  event.preventDefault()
+  const center = touchCenter(touchA, touchB)
+  imageZoomPinching.value = true
+  imageZoomDragging.value = false
+  imageZoomMoved = true
+  imageZoomPinchStartDistance = Math.max(1, touchDistance(touchA, touchB))
+  imageZoomPinchStartScale = imageZoomScale.value
+  imageZoomPinchStartTranslateX = imageZoomTranslateX.value
+  imageZoomPinchStartTranslateY = imageZoomTranslateY.value
+  imageZoomPinchStartCenterX = center.x
+  imageZoomPinchStartCenterY = center.y
+  lastTapAt = 0
+  lastTapIndex = -1
+  controlsVisible.value = false
+  brightnessVisible.value = false
+  pageListVisible.value = false
+  readerSettingsVisible.value = false
+  window.clearTimeout(hideTimer)
+  return true
+}
+
+function updateImageZoomPinch(event: TouchEvent) {
+  if (!imageZoomPinching.value || event.touches.length < 2) return false
+
+  const touchA = event.touches[0]
+  const touchB = event.touches[1]
+  if (!touchA || !touchB) return false
+
+  event.preventDefault()
+  const distance = Math.max(1, touchDistance(touchA, touchB))
+  const center = touchCenter(touchA, touchB)
+  const nextScale = clampZoomScale(imageZoomPinchStartScale * (distance / imageZoomPinchStartDistance))
+  const scaleRatio = nextScale / imageZoomPinchStartScale
+  const viewportCenterX = window.innerWidth / 2
+  const viewportCenterY = window.innerHeight / 2
+  const startOffsetX = imageZoomPinchStartCenterX - viewportCenterX - imageZoomPinchStartTranslateX
+  const startOffsetY = imageZoomPinchStartCenterY - viewportCenterY - imageZoomPinchStartTranslateY
+  const centerDeltaX = center.x - imageZoomPinchStartCenterX
+  const centerDeltaY = center.y - imageZoomPinchStartCenterY
+
+  clampImageZoom(
+    nextScale,
+    imageZoomPinchStartTranslateX + centerDeltaX + (1 - scaleRatio) * startOffsetX,
+    imageZoomPinchStartTranslateY + centerDeltaY + (1 - scaleRatio) * startOffsetY,
+  )
+  return true
+}
+
+function endImageZoomPinch() {
+  if (!imageZoomPinching.value) return false
+
+  imageZoomPinching.value = false
+  if (imageZoomScale.value <= IMAGE_ZOOM_RESET_THRESHOLD) {
+    resetImageZoom()
+  } else {
+    clampImageZoom()
+  }
+  ignoreNextTap.value = true
+  lastTapAt = 0
+  lastTapIndex = -1
+  return true
+}
+
 function handleProgressInput(event: Event) {
   const nextIndex = Number((event.target as HTMLInputElement).value)
   if (isGalleryPagedProgress.value) {
@@ -1428,10 +1660,17 @@ function handleProgressInput(event: Event) {
 }
 
 function handleGalleryTap(event: MouseEvent) {
-  if (handleDoubleTap()) return
-
   if (ignoreNextTap.value) {
     ignoreNextTap.value = false
+    lastTapAt = 0
+    lastTapIndex = -1
+    return
+  }
+
+  if (handleDoubleTap(event)) return
+
+  if (imageZoomActive.value) {
+    toggleControls(true)
     return
   }
 
@@ -1463,20 +1702,33 @@ function shouldSwipeNext(deltaX: number) {
   return galleryDirection.value === 'right-next' ? swipedLeft : !swipedLeft
 }
 
-function handleDoubleTap() {
+function handleDoubleTap(event?: MouseEvent) {
   const now = Date.now()
-  if (now - lastTapAt > 280) {
+  const tapIndex = currentIndex.value
+  if (now - lastTapAt > 280 || lastTapIndex !== tapIndex) {
     lastTapAt = now
+    lastTapIndex = tapIndex
     return false
   }
 
   lastTapAt = 0
-  fitMode.value = fitMode.value === 'width' ? 'contain' : 'width'
+  lastTapIndex = -1
   controlsVisible.value = false
   brightnessVisible.value = false
   pageListVisible.value = false
   readerSettingsVisible.value = false
   window.clearTimeout(hideTimer)
+
+  if (isGalleryImagePage.value) {
+    if (imageZoomActive.value) {
+      resetImageZoom()
+    } else {
+      zoomGalleryImageFromPoint(event?.clientX ?? window.innerWidth / 2, event?.clientY ?? window.innerHeight / 2)
+    }
+    return true
+  }
+
+  fitMode.value = fitMode.value === 'width' ? 'contain' : 'width'
 
   if (isContinuousMode.value) {
     void scrollToCurrentIndex('auto')
@@ -1505,13 +1757,54 @@ function setFitMode(mode: ReaderFitMode) {
 }
 
 function handleGalleryTouchStart(event: TouchEvent) {
-  const touch = event.changedTouches[0]
+  if (event.touches.length >= 2 && beginImageZoomPinch(event)) return
+
+  const touch = event.touches[0] ?? event.changedTouches[0]
   if (!touch) return
+  if (imageZoomActive.value) {
+    event.preventDefault()
+    beginImageZoomDrag(touch.clientX, touch.clientY)
+    return
+  }
+
   touchStartX.value = touch.clientX
   touchStartY.value = touch.clientY
 }
 
+function handleGalleryTouchMove(event: TouchEvent) {
+  if (imageZoomPinching.value) {
+    updateImageZoomPinch(event)
+    return
+  }
+
+  if (event.touches.length >= 2) {
+    beginImageZoomPinch(event)
+    return
+  }
+
+  const touch = event.touches[0] ?? event.changedTouches[0]
+  if (!touch || !imageZoomActive.value) return
+  event.preventDefault()
+  updateImageZoomDrag(touch.clientX, touch.clientY)
+}
+
 function handleGalleryTouchEnd(event: TouchEvent) {
+  if (imageZoomPinching.value) {
+    endImageZoomPinch()
+    const remainingTouch = event.touches[0]
+    if (remainingTouch && imageZoomActive.value) {
+      beginImageZoomDrag(remainingTouch.clientX, remainingTouch.clientY)
+    }
+    return
+  }
+
+  if (imageZoomDragging.value) {
+    endImageZoomDrag()
+    return
+  }
+
+  if (event.touches.length > 0) return
+
   const touch = event.changedTouches[0]
   if (!touch) return
 
@@ -1526,6 +1819,21 @@ function handleGalleryTouchEnd(event: TouchEvent) {
   } else {
     previousPage()
   }
+}
+
+function handleGalleryMouseDown(event: MouseEvent) {
+  if (!imageZoomActive.value || event.button !== 0) return
+  event.preventDefault()
+  beginImageZoomDrag(event.clientX, event.clientY)
+}
+
+function handleGalleryMouseMove(event: MouseEvent) {
+  if (!imageZoomDragging.value) return
+  updateImageZoomDrag(event.clientX, event.clientY)
+}
+
+function handleGalleryMouseUp() {
+  endImageZoomDrag()
 }
 
 function setContinuousFrameRef(element: Element | ComponentPublicInstance | null, index: number) {
@@ -1679,6 +1987,25 @@ function handleContinuousScroll() {
   width: 100%;
   height: auto;
   max-height: none;
+}
+
+.reader-image.zoomable {
+  transform-origin: center center;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  cursor: zoom-in;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  will-change: transform;
+}
+
+.gallery-stage.zoom-active .reader-image.zoomable {
+  cursor: grab;
+}
+
+.gallery-stage.zoom-active .reader-image.zoomable.dragging {
+  transition: none;
+  cursor: grabbing;
 }
 
 .continuous-image {
@@ -2590,6 +2917,7 @@ function handleContinuousScroll() {
   .reader-page-slide-next-leave-active,
   .reader-page-slide-previous-enter-active,
   .reader-page-slide-previous-leave-active,
+  .reader-image.zoomable,
   .reader-sheet-enter-active,
   .reader-sheet-leave-active,
   .reader-sheet-enter-active .reader-chapter-sheet,
