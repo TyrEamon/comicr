@@ -3,9 +3,13 @@ import * as OpenCC from 'opencc-js/t2cn'
 const traditionalToSimplified = OpenCC.Converter({ from: 'tw', to: 'cn' })
 const hongKongToSimplified = OpenCC.Converter({ from: 'hk', to: 'cn' })
 
+function foldSearchCase(value: string) {
+  return value.normalize('NFKC').toLocaleLowerCase('zh-CN')
+}
+
 function normalizeChinese(value: string) {
-  const folded = value.normalize('NFKC').toLocaleLowerCase()
-  return hongKongToSimplified(traditionalToSimplified(folded))
+  const folded = foldSearchCase(value)
+  return foldSearchCase(hongKongToSimplified(traditionalToSimplified(folded)))
 }
 
 function compactSearchText(value: string) {
