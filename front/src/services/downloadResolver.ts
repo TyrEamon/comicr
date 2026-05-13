@@ -8,6 +8,7 @@ import {
 } from './downloadPlan'
 import { isEhentaiUrl, resolveEhentaiDownloadPlan } from './downloadParsers/ehentaiParser'
 import { isHitomiUrl, resolveHitomiDownloadPlan } from './downloadParsers/hitomiParser'
+import { isKemonoUrl, resolveKemonoDownloadPlan } from './downloadParsers/kemonoParser'
 import { isNhentaiUrl, resolveNhentaiDownloadPlan } from './downloadParsers/nhentaiParser'
 import { isTelegraphUrl, resolveTelegraphDownloadPlan } from './downloadParsers/telegraphParser'
 import { isWnacgUrl, resolveWnacgDownloadPlan } from './downloadParsers/wnacgParser'
@@ -30,6 +31,9 @@ export async function resolveDownloadPlan(rawUrl: string): Promise<DownloadPlan>
   }
   if (isWnacgUrl(pageUrl)) {
     return resolveWnacgDownloadPlan(pageUrl)
+  }
+  if (isKemonoUrl(pageUrl)) {
+    return resolveKemonoDownloadPlan(pageUrl)
   }
 
   if (IMAGE_URL_RE.test(pageUrl)) {

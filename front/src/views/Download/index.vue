@@ -237,6 +237,9 @@ function formatTaskAddress(task: DownloadTask) {
   if (task.source === 'wnacg') {
     return `WNACG ${task.url}`
   }
+  if (task.source === 'kemono') {
+    return `Kemono ${task.url}`
+  }
   return task.url
 }
 

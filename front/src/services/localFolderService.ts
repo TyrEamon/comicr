@@ -27,6 +27,17 @@ interface NativeFolderScanResult {
   mangas: NativeFolderManga[]
 }
 
+interface NativePersistedFolderRoot {
+  title: string
+  uri: string
+  updatedAt?: number
+  writable?: boolean
+}
+
+interface NativePersistedFolderResult {
+  roots: NativePersistedFolderRoot[]
+}
+
 interface NativeImageReadResult {
   type: string
   base64: string
@@ -48,9 +59,15 @@ interface NativeFileChunkReadResult {
   done: boolean
 }
 
+interface NativeLibraryIndexResult {
+  text: string
+}
+
 interface LocalFolderPlugin {
   pickFolder(): Promise<NativeFolderScanResult>
   scanFolder(options: { uri: string }): Promise<NativeFolderScanResult>
+  listPersistedFolders?: () => Promise<NativePersistedFolderResult>
+  readLibraryIndex?: (options: { uri: string }) => Promise<NativeLibraryIndexResult>
   readImage(options: { uri: string }): Promise<NativeImageReadResult>
   readFile(options: { uri: string }): Promise<NativeFileReadResult>
   readFileChunk?: (options: { uri: string; offset: number; length: number }) => Promise<NativeFileChunkReadResult>
@@ -125,9 +142,29 @@ function saveAuthorizedRoot(scan: NativeFolderScanResult) {
   return nextRoot
 }
 
+function saveAuthorizedRoots(roots: AuthorizedFolderRoot[]) {
+  const uniqueRoots = Array.from(
+    new Map(
+      roots
+        .filter((root) => root.uri)
+        .map((root) => [root.uri, root]),
+    ).values(),
+  )
+  saveJsonRecord(AUTHORIZED_FOLDER_ROOTS_KEY, uniqueRoots)
+  return uniqueRoots
+}
+
 function loadAuthorizedRoots() {
   return loadJsonRecord<AuthorizedFolderRoot[]>(AUTHORIZED_FOLDER_ROOTS_KEY, [])
     .filter((root) => root.uri)
+}
+
+function normalizePersistedRoot(root: NativePersistedFolderRoot): AuthorizedFolderRoot {
+  return {
+    title: root.title || '授权目录',
+    uri: root.uri,
+    updatedAt: root.updatedAt || Date.now(),
+  }
 }
 
 function toImports(scan: NativeFolderScanResult, onProgress?: (progress: LocalFolderImportProgress) => void) {
@@ -168,6 +205,21 @@ export const localFolderService = {
     return loadAuthorizedRoots()
   },
 
+  async getRecoverableRoots() {
+    const localRoots = loadAuthorizedRoots()
+    if (!this.isAvailable() || !localFolderPlugin.listPersistedFolders) {
+      return localRoots
+    }
+
+    try {
+      const result = await localFolderPlugin.listPersistedFolders()
+      const nativeRoots = (result.roots || []).map(normalizePersistedRoot)
+      return saveAuthorizedRoots([...nativeRoots, ...localRoots])
+    } catch {
+      return localRoots
+    }
+  },
+
   clearAuthorizedRoot(uri: string) {
     const roots = loadAuthorizedRoots().filter((root) => root.uri !== uri)
     saveJsonRecord(AUTHORIZED_FOLDER_ROOTS_KEY, roots)
@@ -193,7 +245,7 @@ export const localFolderService = {
       throw new Error('刷新漫画库需要 Android APK 环境')
     }
 
-    const roots = loadAuthorizedRoots()
+    const roots = await this.getRecoverableRoots()
     if (roots.length === 0) {
       throw new Error('还没有授权漫画库文件夹')
     }
@@ -210,6 +262,51 @@ export const localFolderService = {
         })
       }))
     }
+    return imports
+  },
+
+  async loadAuthorizedFolderIndexes(onProgress?: (progress: LocalFolderImportProgress) => void): Promise<LocalFolderImport[]> {
+    if (!this.isAvailable()) return []
+
+    const roots = await this.getRecoverableRoots()
+    if (roots.length === 0) return []
+
+    const imports: LocalFolderImport[] = []
+    for (const [rootIndex, root] of roots.entries()) {
+      let scan: NativeFolderScanResult | null = null
+
+      if (localFolderPlugin.readLibraryIndex) {
+        try {
+          const result = await localFolderPlugin.readLibraryIndex({ uri: root.uri })
+          const parsed = JSON.parse(result.text) as NativeFolderScanResult
+          if (parsed?.rootUri && Array.isArray(parsed.mangas)) {
+            scan = parsed
+          }
+        } catch {
+          scan = null
+        }
+      }
+
+      if (!scan) {
+        try {
+          scan = await localFolderPlugin.scanFolder({ uri: root.uri })
+        } catch {
+          scan = null
+        }
+      }
+
+      if (!scan) continue
+
+      saveAuthorizedRoot(scan)
+      imports.push(...toImports(scan, (progress) => {
+        onProgress?.({
+          current: rootIndex + 1,
+          total: roots.length,
+          title: `${scan?.rootTitle || root.title} · ${progress.title}`,
+        })
+      }))
+    }
+
     return imports
   },
 

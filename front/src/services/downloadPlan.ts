@@ -1,4 +1,4 @@
-export type DownloadPlanSource = 'link' | 'telegraph' | 'ehentai' | 'exhentai' | 'nhentai' | 'hitomi' | 'wnacg'
+export type DownloadPlanSource = 'link' | 'telegraph' | 'ehentai' | 'exhentai' | 'nhentai' | 'hitomi' | 'wnacg' | 'kemono'
 
 export interface DownloadPlanPage {
   url: string

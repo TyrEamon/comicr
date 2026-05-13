@@ -13,12 +13,14 @@ import {
 } from './db'
 import { downloadTargetService } from './downloadTargetService'
 import { localFolderService } from './localFolderService'
+import type { LocalFolderImport } from './localFolderService'
 import type { ImageAsset, MangaImageRecord, MangaItem, MangaSource, ReaderAssetKind, ReaderChapter, ReadingProgress, ShelfState } from './types'
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif'])
 const TXT_CHUNK_CHAR_LIMIT = 12_000
 const SHELF_KEY = 'comics-app:shelf:v1'
 const PROGRESS_KEY = 'comics-app:progress:v1'
+const LOCAL_LIBRARY_RESTORE_SUPPRESSED_KEY = 'comics-app:local-library-restore-suppressed:v1'
 const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
 
 type PickedImageFile = File & { webkitRelativePath?: string }
@@ -794,6 +796,21 @@ function saveJsonRecord<T>(key: string, value: T) {
   localStorage.setItem(key, JSON.stringify(value))
 }
 
+function isLocalLibraryRestoreSuppressed() {
+  return loadJsonRecord<boolean>(LOCAL_LIBRARY_RESTORE_SUPPRESSED_KEY, false)
+}
+
+function suppressLocalLibraryRestore() {
+  saveJsonRecord(LOCAL_LIBRARY_RESTORE_SUPPRESSED_KEY, true)
+}
+
+function clearLocalLibraryRestoreSuppression() {
+  localStorage.removeItem(LOCAL_LIBRARY_RESTORE_SUPPRESSED_KEY)
+}
+
+let authorizedLibraryRestoreAttempted = false
+let authorizedLibraryRestorePromise: Promise<number> | null = null
+
 export const libraryService = {
   stableImportId(prefix: string, key: string) {
     return stableId(prefix, key)
@@ -803,8 +820,91 @@ export const libraryService = {
     return suggestEpubCollectionTitle(files)
   },
 
+  async restoreAuthorizedLocalLibrary() {
+    if (!localFolderService.isAvailable()) return 0
+    if (isLocalLibraryRestoreSuppressed()) return 0
+    if (authorizedLibraryRestorePromise) return authorizedLibraryRestorePromise
+    if (authorizedLibraryRestoreAttempted) return 0
+
+    authorizedLibraryRestoreAttempted = true
+    authorizedLibraryRestorePromise = (async () => {
+      const folders = await localFolderService.loadAuthorizedFolderIndexes()
+      let restoredCount = 0
+
+      for (const folder of folders) {
+        try {
+          const manga = await this.importLocalFolderIndexItem(folder)
+          if (manga) restoredCount += 1
+        } catch {
+          // Keep restoring the rest of the authorized library even if one file is unavailable.
+        }
+      }
+
+      return restoredCount
+    })().finally(() => {
+      authorizedLibraryRestorePromise = null
+    })
+
+    return authorizedLibraryRestorePromise
+  },
+
+  async importLocalFolderIndexItem(folder: LocalFolderImport, manualTitle?: string) {
+    const title = manualTitle || folder.title
+    const mangaId = stableId(folder.sourceType, folder.sourceKey)
+    const localPath = `${folder.sourceType}:${folder.sourceVersionKey || folder.sourceKey}`
+    const existing = await getRecord<MangaItem>('mangas', mangaId)
+    const isReaderFile = folder.sourceType === 'epub' || folder.sourceType === 'txt'
+
+    if (existing?.localPath === localPath && (isReaderFile || existing.imageCount === folder.imageCount)) {
+      return existing
+    }
+
+    if (isReaderFile) {
+      const fileRef = folder.images.find((image) => image.uri)
+      if (!fileRef?.uri) return null
+
+      const file = await localFolderService.readFile(fileRef.uri, fileRef.type)
+      return folder.sourceType === 'epub'
+        ? this.importEpubFile(file, title, { id: mangaId, localPath })
+        : this.importTextFile(file, title, { id: mangaId, localPath })
+    }
+
+    if (folder.sourceType === 'archive') {
+      return this.importArchiveRefs(
+        title,
+        folder.images
+          .filter((image) => image.archiveUri && image.entryName)
+          .map((image) => ({
+            name: image.name,
+            type: image.type,
+            archiveUri: image.archiveUri as string,
+            entryName: image.entryName as string,
+          })),
+        { id: mangaId, localPath },
+      )
+    }
+
+    return this.importImageRefs(
+      title,
+      folder.images
+        .filter((image) => image.uri)
+        .map((image) => ({
+          name: image.name,
+          type: image.type,
+          uri: image.uri as string,
+        })),
+      'folder',
+      { id: mangaId, localPath },
+    )
+  },
+
   async listMangas() {
-    const localMangas = await listMangas()
+    let localMangas = await listMangas()
+    if (localMangas.length === 0) {
+      await this.restoreAuthorizedLocalLibrary()
+      localMangas = await listMangas()
+    }
+
     const cloudMangas = cloudService.getWebDavIndexedMangas()
     const localIds = new Set(localMangas.map((manga) => manga.id))
     return [...cloudMangas.filter((manga) => !localIds.has(manga.id)), ...localMangas]
@@ -1168,6 +1268,7 @@ export const libraryService = {
       await deleteImagesByManga(mangaId)
     }
     await putRecord('mangas', manga)
+    clearLocalLibraryRestoreSuppression()
 
     for (const [index, asset] of assets.entries()) {
       const kind = asset.kind || 'image'
@@ -1217,6 +1318,7 @@ export const libraryService = {
       await deleteImagesByManga(mangaId)
     }
     await putRecord('mangas', manga)
+    clearLocalLibraryRestoreSuppression()
 
     for (const [index, image] of images.entries()) {
       const record: MangaImageRecord = {
@@ -1259,6 +1361,7 @@ export const libraryService = {
       await deleteImagesByManga(mangaId)
     }
     await putRecord('mangas', manga)
+    clearLocalLibraryRestoreSuppression()
 
     for (const [index, image] of images.entries()) {
       const record: MangaImageRecord = {
@@ -1374,6 +1477,9 @@ export const libraryService = {
 
     await deleteImagesByManga(mangaId)
     await deleteRecord('mangas', mangaId)
+    if ((await listMangas()).length === 0) {
+      suppressLocalLibraryRestore()
+    }
     this.removeProgress(mangaId)
     this.removeShelfState(mangaId)
   },

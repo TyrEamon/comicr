@@ -93,6 +93,33 @@
           清除 Cookie
         </button>
       </div>
+
+      <label class="input-label" for="kemono-cookie">Kemono / Coomer Cookie</label>
+      <textarea
+        id="kemono-cookie"
+        v-model="kemonoCookie"
+        class="text-input credential-input"
+        rows="3"
+        spellcheck="false"
+        autocomplete="off"
+        placeholder="session=... 或直接粘贴 session 值"
+      />
+
+      <div class="cache-actions">
+        <button class="ghost-button import-button" type="button" @click="saveKemonoCookie">
+          <HardDrive :size="18" />
+          保存 Kemono Cookie
+        </button>
+        <button class="ghost-button import-button danger-action" type="button" :disabled="!kemonoCookie.trim()" @click="clearKemonoCookie">
+          <Trash2 :size="18" />
+          清除 Kemono Cookie
+        </button>
+      </div>
+
+      <label class="cover-cache-toggle">
+        <input v-model="kemonoUseOriginal" type="checkbox" @change="saveKemonoImageMode" />
+        <span>下载 Kemono 原图。关闭时使用缩略图，更稳定；开启后尝试原图地址。</span>
+      </label>
     </section>
 
     <section class="surface-card setting-card storage-card">
@@ -244,6 +271,11 @@
           <code>https://nhentai.xxx/g/123456/</code>
           <code>https://hitomi.la/manga/example-123456.html</code>
         </span>
+        <span>
+          <strong>Kemono / Coomer</strong>
+          <code>https://kemono.cr/patreon/user/123/post/456</code>
+          <code>https://coomer.su/fantia/user/123/post/456</code>
+        </span>
       </div>
     </section>
 
@@ -339,6 +371,8 @@ const clearCoverCache = ref(false)
 const cloudThreadCount = ref(cloudThreadSettings.getSettings().threadCount)
 const jmThreadCount = ref(jmThreadSettings.getSettings().threadCount)
 const exhentaiCookie = ref(downloadSiteSettings.getSettings().exhentaiCookie)
+const kemonoCookie = ref(downloadSiteSettings.getSettings().kemonoCookie)
+const kemonoUseOriginal = ref(downloadSiteSettings.getSettings().kemonoUseOriginal)
 const proxyInput = ref(networkProxySettings.toInputValue())
 const proxyEnabled = ref(networkProxySettings.getSettings().enabled)
 const proxySettingsVersion = ref(0)
@@ -780,6 +814,24 @@ function clearExhentaiCookie() {
   const settings = downloadSiteSettings.clearExhentaiCookie()
   exhentaiCookie.value = settings.exhentaiCookie
   message.value = 'ExHentai Cookie 已清空'
+}
+
+function saveKemonoCookie() {
+  const settings = downloadSiteSettings.updateSettings({ kemonoCookie: kemonoCookie.value })
+  kemonoCookie.value = settings.kemonoCookie
+  message.value = settings.kemonoCookie ? 'Kemono Cookie 已保存' : 'Kemono Cookie 已清空'
+}
+
+function clearKemonoCookie() {
+  const settings = downloadSiteSettings.clearKemonoCookie()
+  kemonoCookie.value = settings.kemonoCookie
+  message.value = 'Kemono Cookie 已清空'
+}
+
+function saveKemonoImageMode() {
+  const settings = downloadSiteSettings.updateSettings({ kemonoUseOriginal: kemonoUseOriginal.value })
+  kemonoUseOriginal.value = settings.kemonoUseOriginal
+  message.value = settings.kemonoUseOriginal ? 'Kemono 已切换为原图下载' : 'Kemono 已切换为缩略图下载'
 }
 
 function saveProxySettings() {

@@ -2,6 +2,7 @@ package com.tyr.comicsapp;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.UriPermission;
 import android.content.res.AssetFileDescriptor;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
@@ -24,6 +25,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -40,6 +43,8 @@ public class LocalFolderPlugin extends Plugin {
     private static final int MAX_MANGAS = 300;
     private static final int MAX_IMAGES_PER_MANGA = 3000;
     private static final int MAX_FILE_CHUNK_BYTES = 512 * 1024;
+    private static final String LIBRARY_INDEX_FILE_NAME = ".comicr-library-index.json";
+    private static final String LIBRARY_INDEX_MIME_TYPE = "application/json";
     private static final List<String> CONTENT_DIRECTORY_NAMES = Arrays.asList(
         "page", "pages", "image", "images", "img", "imgs", "raw", "scan", "scans", "original", "origin"
     );
@@ -50,9 +55,69 @@ public class LocalFolderPlugin extends Plugin {
     public void pickFolder(PluginCall call) {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         intent.addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         startActivityForResult(call, intent, "pickFolderResult");
+    }
+
+    @PluginMethod
+    public void listPersistedFolders(PluginCall call) {
+        scannerExecutor.execute(() -> {
+            try {
+                JSArray roots = new JSArray();
+                for (UriPermission permission : getContext().getContentResolver().getPersistedUriPermissions()) {
+                    if (!permission.isReadPermission()) continue;
+
+                    Uri uri = permission.getUri();
+                    DocumentFile root = DocumentFile.fromTreeUri(getContext(), uri);
+                    if (root == null || !root.isDirectory()) continue;
+
+                    JSObject item = new JSObject();
+                    item.put("title", safeName(root, "授权目录"));
+                    item.put("uri", uri.toString());
+                    item.put("updatedAt", System.currentTimeMillis());
+                    item.put("writable", permission.isWritePermission() && root.canWrite());
+                    roots.put(item);
+                }
+
+                JSObject response = new JSObject();
+                response.put("roots", roots);
+                resolveOnMain(call, response);
+            } catch (Exception error) {
+                rejectOnMain(call, error.getMessage() == null ? "读取授权目录失败" : error.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void readLibraryIndex(PluginCall call) {
+        String uriValue = call.getString("uri");
+        if (uriValue == null || uriValue.isEmpty()) {
+            call.reject("Missing authorized folder uri");
+            return;
+        }
+
+        Uri treeUri = Uri.parse(uriValue);
+        scannerExecutor.execute(() -> {
+            try {
+                DocumentFile root = DocumentFile.fromTreeUri(getContext(), treeUri);
+                if (root == null || !root.isDirectory()) {
+                    throw new Exception("授权目录不可用");
+                }
+
+                DocumentFile indexFile = root.findFile(LIBRARY_INDEX_FILE_NAME);
+                if (indexFile == null || !indexFile.isFile()) {
+                    throw new Exception("索引文件不存在");
+                }
+
+                JSObject response = new JSObject();
+                response.put("text", readText(indexFile.getUri()));
+                resolveOnMain(call, response);
+            } catch (Exception error) {
+                rejectOnMain(call, error.getMessage() == null ? "读取目录索引失败" : error.getMessage());
+            }
+        });
     }
 
     @PluginMethod
@@ -218,6 +283,7 @@ public class LocalFolderPlugin extends Plugin {
         response.put("rootTitle", safeName(root, "漫画库"));
         response.put("rootUri", treeUri.toString());
         response.put("mangas", mangaItems);
+        persistLibraryIndex(root, response);
         return response;
     }
 
@@ -701,6 +767,42 @@ public class LocalFolderPlugin extends Plugin {
                 output.write(buffer, 0, read);
             }
             return Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP);
+        }
+    }
+
+    private String readText(Uri uri) throws Exception {
+        try (InputStream input = getContext().getContentResolver().openInputStream(uri);
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            if (input == null) throw new Exception("无法读取文件");
+            byte[] buffer = new byte[32 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+            return output.toString(StandardCharsets.UTF_8.name());
+        }
+    }
+
+    private void writeText(Uri uri, String text) throws Exception {
+        try (OutputStream output = getContext().getContentResolver().openOutputStream(uri, "wt")) {
+            if (output == null) throw new Exception("无法写入文件");
+            output.write(text.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private void persistLibraryIndex(DocumentFile root, JSObject response) {
+        try {
+            if (root == null || !root.isDirectory() || !root.canWrite()) return;
+
+            DocumentFile indexFile = root.findFile(LIBRARY_INDEX_FILE_NAME);
+            if (indexFile == null) {
+                indexFile = root.createFile(LIBRARY_INDEX_MIME_TYPE, LIBRARY_INDEX_FILE_NAME);
+            }
+            if (indexFile == null || !indexFile.isFile()) return;
+
+            writeText(indexFile.getUri(), response.toString());
+        } catch (Exception ignored) {
+            // Older grants may be read-only. Keep scanning usable even when the backup file cannot be written.
         }
     }
 
