@@ -1,5 +1,6 @@
 import { deleteRecord, getAllRecords, getRecord, putRecord } from './db'
 import { cloudThreadSettings } from './cloudThreadSettings'
+import { downloadTargetService } from './downloadTargetService'
 import { networkProxySettings, type NativeProxyConfig } from './networkProxySettings'
 import type {
   CloudCacheSettings,
@@ -22,6 +23,9 @@ const WEBDAV_PRIVATE_ROOT = 'webdav-library'
 const WEBDAV_PRIVATE_INDEX_PATH = `${WEBDAV_PRIVATE_ROOT}/index.json`
 const WEBDAV_PRIVATE_PREVIEWS_PATH = `${WEBDAV_PRIVATE_ROOT}/previews.json`
 const WEBDAV_PRIVATE_COVER_DIR = `${WEBDAV_PRIVATE_ROOT}/covers`
+const WEBDAV_TARGET_INDEX_FILE = '.comicr-webdav-index.json'
+const WEBDAV_TARGET_PREVIEWS_FILE = '.comicr-webdav-previews.json'
+const WEBDAV_TARGET_COVER_DIR = '.comicr-webdav-covers'
 const LOCAL_PROVIDER_ID = 'local-archive'
 const WEBDAV_PROVIDER_ID = 'webdav'
 const DEFAULT_CLOUD_CACHE_BYTES = 300 * 1024 * 1024
@@ -61,6 +65,7 @@ interface WebDavPreviewRecord {
   imageCount: number
   firstImagePath?: string
   coverFilePath?: string
+  targetCoverPath?: string
   coverType?: string
   coverSizeBytes?: number
   coverUpdatedAt?: number
@@ -175,6 +180,10 @@ function privateCoverPath(path: string) {
   return `${WEBDAV_PRIVATE_COVER_DIR}/${storageSafeName(path)}.bin`
 }
 
+function targetCoverPath(path: string) {
+  return `${WEBDAV_TARGET_COVER_DIR}/${storageSafeName(path)}.bin`
+}
+
 function privateParentPath(path: string) {
   const index = path.lastIndexOf('/')
   return index > 0 ? path.slice(0, index) : ''
@@ -223,6 +232,31 @@ async function writePrivateJsonRecord<T>(path: string, value: T) {
     return true
   } catch {
     return false
+  }
+}
+
+async function readTargetJsonRecord<T>(name: string): Promise<T | null> {
+  try {
+    const text = await downloadTargetService.readMetadata(name)
+    return text ? JSON.parse(text) as T : null
+  } catch {
+    return null
+  }
+}
+
+async function writeTargetJsonRecord<T>(name: string, value: T) {
+  try {
+    return await downloadTargetService.writeMetadata(name, JSON.stringify(value))
+  } catch {
+    return false
+  }
+}
+
+async function deleteTargetMetadata(name: string) {
+  try {
+    await downloadTargetService.deleteMetadata(name)
+  } catch {
+    // The backup file is best-effort and may not exist if no download folder is configured.
   }
 }
 
@@ -295,6 +329,22 @@ async function writePrivateBlob(path: string, blob: Blob) {
   }
 }
 
+async function readTargetBlob(path: string, type: string) {
+  try {
+    return await downloadTargetService.readMetadataBlob(path, type)
+  } catch {
+    return null
+  }
+}
+
+async function writeTargetBlob(path: string, blob: Blob) {
+  try {
+    return await downloadTargetService.writeMetadataBlob(path, blob.type || 'application/octet-stream', blob)
+  } catch {
+    return false
+  }
+}
+
 function loadWebDavConfig(): WebDavConfig | null {
   const stored = loadJsonRecord<WebDavConfig | null>(WEBDAV_CONFIG_KEY, null)
   if (!stored) return null
@@ -345,7 +395,12 @@ function writePreviewCachePrivate(cache: Record<string, WebDavPreviewRecord>) {
   const snapshot = JSON.parse(JSON.stringify(cache)) as Record<string, WebDavPreviewRecord>
   previewPrivateWriteQueue = previewPrivateWriteQueue
     .catch(() => undefined)
-    .then(() => writePrivateJsonRecord(WEBDAV_PRIVATE_PREVIEWS_PATH, snapshot))
+    .then(async () => {
+      await Promise.all([
+        writePrivateJsonRecord(WEBDAV_PRIVATE_PREVIEWS_PATH, snapshot),
+        writeTargetJsonRecord(WEBDAV_TARGET_PREVIEWS_FILE, snapshot),
+      ])
+    })
     .then(() => undefined)
   return previewPrivateWriteQueue
 }
@@ -358,9 +413,11 @@ async function ensurePreviewCacheHydrated() {
   }
 
   previewCacheHydrationPromise = (async () => {
-    const privateCache = await readPrivateJsonRecord<Record<string, WebDavPreviewRecord>>(WEBDAV_PRIVATE_PREVIEWS_PATH)
-    if (privateCache) {
-      savePreviewCache(privateCache)
+    const storedCache = await readPrivateJsonRecord<Record<string, WebDavPreviewRecord>>(WEBDAV_PRIVATE_PREVIEWS_PATH)
+      ?? await readTargetJsonRecord<Record<string, WebDavPreviewRecord>>(WEBDAV_TARGET_PREVIEWS_FILE)
+    if (storedCache) {
+      savePreviewCache(storedCache)
+      void writePreviewCachePrivate(storedCache)
       previewCacheHydrated = true
       return
     }
@@ -377,7 +434,15 @@ async function ensurePreviewCacheHydrated() {
 
 async function loadPreviewCacheAsync() {
   await ensurePreviewCacheHydrated()
-  return loadPreviewCache()
+  const cache = loadPreviewCache()
+  if (Object.keys(cache).length > 0) return cache
+
+  const targetCache = await readTargetJsonRecord<Record<string, WebDavPreviewRecord>>(WEBDAV_TARGET_PREVIEWS_FILE)
+  if (!targetCache || typeof targetCache !== 'object' || Array.isArray(targetCache)) return cache
+
+  savePreviewCache(targetCache)
+  void writePreviewCachePrivate(targetCache)
+  return targetCache
 }
 
 function loadIndexCache(): WebDavIndexRecord {
@@ -399,7 +464,12 @@ function writeIndexCachePrivate(record: WebDavIndexRecord) {
   const snapshot = JSON.parse(JSON.stringify(record)) as WebDavIndexRecord
   indexPrivateWriteQueue = indexPrivateWriteQueue
     .catch(() => undefined)
-    .then(() => writePrivateJsonRecord(WEBDAV_PRIVATE_INDEX_PATH, snapshot))
+    .then(async () => {
+      await Promise.all([
+        writePrivateJsonRecord(WEBDAV_PRIVATE_INDEX_PATH, snapshot),
+        writeTargetJsonRecord(WEBDAV_TARGET_INDEX_FILE, snapshot),
+      ])
+    })
     .then(() => undefined)
   return indexPrivateWriteQueue
 }
@@ -412,9 +482,11 @@ async function ensureIndexCacheHydrated() {
   }
 
   indexCacheHydrationPromise = (async () => {
-    const privateRecord = await readPrivateJsonRecord<WebDavIndexRecord>(WEBDAV_PRIVATE_INDEX_PATH)
-    if (privateRecord) {
-      saveIndexRecord(privateRecord)
+    const storedRecord = await readPrivateJsonRecord<WebDavIndexRecord>(WEBDAV_PRIVATE_INDEX_PATH)
+      ?? await readTargetJsonRecord<WebDavIndexRecord>(WEBDAV_TARGET_INDEX_FILE)
+    if (storedRecord) {
+      saveIndexRecord(storedRecord)
+      void writeIndexCachePrivate(storedRecord)
       indexCacheHydrated = true
       return
     }
@@ -431,7 +503,23 @@ async function ensureIndexCacheHydrated() {
 
 async function loadIndexCacheAsync() {
   await ensureIndexCacheHydrated()
-  return loadIndexCache()
+  const cache = loadIndexCache()
+  if (cache.items.length > 0) return cache
+
+  const targetRecord = await readTargetJsonRecord<WebDavIndexRecord>(WEBDAV_TARGET_INDEX_FILE)
+  if (!targetRecord || !Array.isArray(targetRecord.items)) return cache
+
+  saveIndexRecord(targetRecord)
+  void writeIndexCachePrivate(targetRecord)
+  return targetRecord
+}
+
+function resetWebDavMetadataHydration() {
+  previewCacheHydrated = false
+  indexCacheHydrated = false
+  previewCacheHydrationPromise = null
+  indexCacheHydrationPromise = null
+  void hydrateWebDavPrivateMetadata()
 }
 
 async function saveIndexCache(items: CloudMangaItem[]) {
@@ -445,6 +533,7 @@ function clearIndexCache() {
   indexCacheHydrated = true
   indexCacheHydrationPromise = null
   void deletePrivateFile(WEBDAV_PRIVATE_INDEX_PATH)
+  void deleteTargetMetadata(WEBDAV_TARGET_INDEX_FILE)
 }
 
 async function getPreviewRecordAsync(path: string) {
@@ -478,6 +567,8 @@ async function hydrateWebDavPrivateMetadata() {
 }
 
 void hydrateWebDavPrivateMetadata()
+
+window.addEventListener('comicr-download-target-updated', resetWebDavMetadataHydration)
 
 function cleanFolderTitle(path: string) {
   const segments = path.split('/').filter(Boolean)
@@ -787,13 +878,21 @@ async function getCachedCoverUrl(path: string) {
   if (cachedUrl) return cachedUrl
 
   const preview = await getPreviewRecordAsync(path)
-  if (preview?.coverFilePath) {
-    const blob = await readPrivateBlob(preview.coverFilePath, preview.coverType || 'image/jpeg')
-    if (blob) {
-      const objectUrl = URL.createObjectURL(blob)
-      coverObjectUrls.set(path, objectUrl)
-      return objectUrl
+  const coverType = preview?.coverType || 'image/jpeg'
+  const privateBlob = preview?.coverFilePath
+    ? await readPrivateBlob(preview.coverFilePath, coverType)
+    : null
+  const targetBlob = !privateBlob && preview?.targetCoverPath
+    ? await readTargetBlob(preview.targetCoverPath, coverType)
+    : null
+  const blob = privateBlob || targetBlob
+  if (blob) {
+    if (!privateBlob && preview?.coverFilePath) {
+      void writePrivateBlob(preview.coverFilePath, blob)
     }
+    const objectUrl = URL.createObjectURL(blob)
+    coverObjectUrls.set(path, objectUrl)
+    return objectUrl
   }
 
   const cacheId = `webdav-cover:${path}`
@@ -807,15 +906,20 @@ async function getCachedCoverUrl(path: string) {
 
 async function cacheCoverBlob(path: string, blob: Blob) {
   const coverPath = privateCoverPath(path)
+  const externalCoverPath = targetCoverPath(path)
   const coverType = blob.type || 'image/jpeg'
-  const savedToPrivateFiles = await writePrivateBlob(coverPath, blob)
+  const [savedToPrivateFiles, savedToTargetFiles] = await Promise.all([
+    writePrivateBlob(coverPath, blob),
+    writeTargetBlob(externalCoverPath, blob),
+  ])
 
-  if (savedToPrivateFiles) {
+  if (savedToPrivateFiles || savedToTargetFiles) {
     const preview = await getPreviewRecordAsync(path)
     await setPreviewRecord(path, {
       imageCount: preview?.imageCount ?? 0,
       firstImagePath: preview?.firstImagePath,
-      coverFilePath: coverPath,
+      coverFilePath: savedToPrivateFiles ? coverPath : preview?.coverFilePath,
+      targetCoverPath: savedToTargetFiles ? externalCoverPath : preview?.targetCoverPath,
       coverType,
       coverSizeBytes: blob.size,
       coverUpdatedAt: Date.now(),
@@ -923,7 +1027,7 @@ async function readCloudCacheStats(): Promise<CloudCacheStats> {
   const pageRecords = records.filter(isPageCacheRecord)
   const coverRecords = records.filter(isCoverCacheRecord)
   const previewCache = await loadPreviewCacheAsync()
-  const privateCoverRecords = Object.values(previewCache).filter((record) => record.coverFilePath)
+  const privateCoverRecords = Object.values(previewCache).filter((record) => record.coverFilePath || record.targetCoverPath)
   const pageBytes = pageRecords.reduce((sum, record) => sum + (record.sizeBytes || record.blob?.size || 0), 0)
   const legacyCoverBytes = coverRecords.reduce((sum, record) => sum + (record.sizeBytes || record.blob?.size || 0), 0)
   const privateCoverBytes = privateCoverRecords.reduce((sum, record) => sum + (record.coverSizeBytes || 0), 0)
@@ -1197,6 +1301,7 @@ export const cloudService = {
       imageCount,
       firstImagePath: firstImage?.path,
       coverFilePath: previewWithCover?.coverFilePath,
+      targetCoverPath: previewWithCover?.targetCoverPath,
       coverType: previewWithCover?.coverType,
       coverSizeBytes: previewWithCover?.coverSizeBytes,
       coverUpdatedAt: previewWithCover?.coverUpdatedAt,
@@ -1339,6 +1444,7 @@ export const cloudService = {
     pageObjectUrls.clear()
     if (includeCovers) {
       await deletePrivateDirectory(WEBDAV_PRIVATE_COVER_DIR)
+      await deleteTargetMetadata(WEBDAV_TARGET_COVER_DIR)
       await clearPreviewCoverRecords()
       coverObjectUrls.forEach((url) => URL.revokeObjectURL(url))
       coverObjectUrls.clear()

@@ -24,7 +24,10 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -97,6 +100,158 @@ public class DownloadTargetPlugin extends Plugin {
         });
     }
 
+    @PluginMethod
+    public void writeMetadata(PluginCall call) {
+        String targetUriValue = call.getString("targetUri", "");
+        String name = call.getString("name");
+        String text = call.getString("text", "");
+
+        if (targetUriValue == null || targetUriValue.isEmpty()) {
+            call.reject("还没有设置下载目录");
+            return;
+        }
+        if (name == null || name.trim().isEmpty()) {
+            call.reject("缺少元数据文件名");
+            return;
+        }
+
+        downloadExecutor.execute(() -> {
+            try {
+                DocumentFile file = writeMetadataToTreeFolder(Uri.parse(targetUriValue), name, text == null ? "" : text);
+                JSObject response = new JSObject();
+                response.put("uri", file.getUri().toString());
+                response.put("name", safeName(file, sanitizeFileName(name)));
+                resolveOnMain(call, response);
+            } catch (Exception error) {
+                rejectOnMain(call, error.getMessage() == null ? "写入元数据失败" : error.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void readMetadata(PluginCall call) {
+        String targetUriValue = call.getString("targetUri", "");
+        String name = call.getString("name");
+
+        if (targetUriValue == null || targetUriValue.isEmpty()) {
+            call.reject("还没有设置下载目录");
+            return;
+        }
+        if (name == null || name.trim().isEmpty()) {
+            call.reject("缺少元数据文件名");
+            return;
+        }
+
+        downloadExecutor.execute(() -> {
+            try {
+                DocumentFile root = requireTreeRoot(Uri.parse(targetUriValue));
+                DocumentFile file = root.findFile(sanitizeFileName(name));
+                if (file == null || !file.isFile()) {
+                    throw new Exception("元数据文件不存在");
+                }
+
+                JSObject response = new JSObject();
+                response.put("text", readTextFromUri(file.getUri()));
+                resolveOnMain(call, response);
+            } catch (Exception error) {
+                rejectOnMain(call, error.getMessage() == null ? "读取元数据失败" : error.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void deleteMetadata(PluginCall call) {
+        String targetUriValue = call.getString("targetUri", "");
+        String name = call.getString("name");
+
+        if (targetUriValue == null || targetUriValue.isEmpty()) {
+            call.reject("还没有设置下载目录");
+            return;
+        }
+        if (name == null || name.trim().isEmpty()) {
+            call.reject("缺少元数据文件名");
+            return;
+        }
+
+        downloadExecutor.execute(() -> {
+            boolean deleted = false;
+            try {
+                DocumentFile root = requireTreeRoot(Uri.parse(targetUriValue));
+                DocumentFile file = root.findFile(sanitizeFileName(name));
+                deleted = file != null && file.exists() && file.delete();
+            } catch (Exception ignored) {
+                deleted = false;
+            }
+
+            JSObject response = new JSObject();
+            response.put("deleted", deleted);
+            resolveOnMain(call, response);
+        });
+    }
+
+    @PluginMethod
+    public void writeMetadataBlob(PluginCall call) {
+        String targetUriValue = call.getString("targetUri", "");
+        String path = call.getString("path");
+        String type = call.getString("type", "application/octet-stream");
+        String base64 = call.getString("base64");
+
+        if (targetUriValue == null || targetUriValue.isEmpty()) {
+            call.reject("还没有设置下载目录");
+            return;
+        }
+        if (path == null || path.trim().isEmpty() || base64 == null) {
+            call.reject("缺少二进制元数据参数");
+            return;
+        }
+
+        downloadExecutor.execute(() -> {
+            try {
+                DocumentFile file = writeMetadataBlobToTreeFolder(Uri.parse(targetUriValue), path, type, base64);
+                JSObject response = new JSObject();
+                response.put("uri", file.getUri().toString());
+                response.put("name", safeName(file, safePathName(path)));
+                response.put("type", type);
+                resolveOnMain(call, response);
+            } catch (Exception error) {
+                rejectOnMain(call, error.getMessage() == null ? "写入二进制元数据失败" : error.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void readMetadataBlob(PluginCall call) {
+        String targetUriValue = call.getString("targetUri", "");
+        String path = call.getString("path");
+        String type = call.getString("type", "application/octet-stream");
+
+        if (targetUriValue == null || targetUriValue.isEmpty()) {
+            call.reject("还没有设置下载目录");
+            return;
+        }
+        if (path == null || path.trim().isEmpty()) {
+            call.reject("缺少二进制元数据路径");
+            return;
+        }
+
+        downloadExecutor.execute(() -> {
+            try {
+                DocumentFile root = requireTreeRoot(Uri.parse(targetUriValue));
+                DocumentFile file = findFileByPath(root, path);
+                if (file == null || !file.isFile()) {
+                    throw new Exception("二进制元数据不存在");
+                }
+
+                JSObject response = new JSObject();
+                response.put("type", type);
+                response.put("base64", readBase64FromUri(file.getUri()));
+                resolveOnMain(call, response);
+            } catch (Exception error) {
+                rejectOnMain(call, error.getMessage() == null ? "读取二进制元数据失败" : error.getMessage());
+            }
+        });
+    }
+
     @ActivityCallback
     private void pickFolderResult(PluginCall call, ActivityResult result) {
         if (call == null) return;
@@ -125,10 +280,7 @@ public class DownloadTargetPlugin extends Plugin {
     }
 
     private JSObject writeToTreeFolder(Uri targetUri, String title, String name, String type, String base64) throws Exception {
-        DocumentFile root = DocumentFile.fromTreeUri(getContext(), targetUri);
-        if (root == null || !root.isDirectory()) {
-            throw new Exception("下载目录不可用，请重新选择");
-        }
+        DocumentFile root = requireTreeRoot(targetUri);
 
         String safeTitle = sanitizeFileName(title);
         String safeImageName = sanitizeFileName(name);
@@ -150,6 +302,77 @@ public class DownloadTargetPlugin extends Plugin {
 
         writeBase64ToUri(image.getUri(), base64);
         return imageResponse(image.getUri().toString(), safeImageName, type, mangaFolder.getUri().toString());
+    }
+
+    private DocumentFile requireTreeRoot(Uri targetUri) throws Exception {
+        DocumentFile root = DocumentFile.fromTreeUri(getContext(), targetUri);
+        if (root == null || !root.isDirectory()) {
+            throw new Exception("下载目录不可用，请重新选择");
+        }
+        return root;
+    }
+
+    private DocumentFile writeMetadataToTreeFolder(Uri targetUri, String name, String text) throws Exception {
+        DocumentFile root = requireTreeRoot(targetUri);
+        String safeName = sanitizeFileName(name);
+        DocumentFile existing = root.findFile(safeName);
+        if (existing != null && existing.isDirectory()) {
+            throw new Exception("同名目录已存在，无法写入元数据");
+        }
+        if (existing == null) {
+            existing = root.createFile("application/json", safeName);
+        }
+        if (existing == null || !existing.isFile()) {
+            throw new Exception("无法创建元数据文件");
+        }
+
+        writeTextToUri(existing.getUri(), text);
+        return existing;
+    }
+
+    private DocumentFile writeMetadataBlobToTreeFolder(Uri targetUri, String path, String type, String base64) throws Exception {
+        DocumentFile root = requireTreeRoot(targetUri);
+        String[] segments = safePathSegments(path);
+        if (segments.length == 0) throw new Exception("缺少二进制元数据路径");
+
+        DocumentFile parent = root;
+        for (int index = 0; index < segments.length - 1; index++) {
+            DocumentFile child = parent.findFile(segments[index]);
+            if (child == null) {
+                child = parent.createDirectory(segments[index]);
+            }
+            if (child == null || !child.isDirectory()) {
+                throw new Exception("无法创建元数据目录");
+            }
+            parent = child;
+        }
+
+        String fileName = segments[segments.length - 1];
+        DocumentFile existing = parent.findFile(fileName);
+        if (existing != null && existing.isDirectory()) {
+            throw new Exception("同名目录已存在，无法写入二进制元数据");
+        }
+        if (existing == null) {
+            existing = parent.createFile(type, fileName);
+        }
+        if (existing == null || !existing.isFile()) {
+            throw new Exception("无法创建二进制元数据文件");
+        }
+
+        writeBase64ToUri(existing.getUri(), base64);
+        return existing;
+    }
+
+    private DocumentFile findFileByPath(DocumentFile root, String path) {
+        String[] segments = safePathSegments(path);
+        if (segments.length == 0) return null;
+
+        DocumentFile current = root;
+        for (String segment : segments) {
+            if (current == null || !current.isDirectory()) return null;
+            current = current.findFile(segment);
+        }
+        return current;
     }
 
     private boolean deleteUri(String uriValue) {
@@ -232,6 +455,39 @@ public class DownloadTargetPlugin extends Plugin {
         }
     }
 
+    private void writeTextToUri(Uri uri, String text) throws Exception {
+        try (OutputStream output = getContext().getContentResolver().openOutputStream(uri, "wt")) {
+            if (output == null) throw new Exception("无法写入元数据");
+            output.write(text.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private String readTextFromUri(Uri uri) throws Exception {
+        try (InputStream input = getContext().getContentResolver().openInputStream(uri);
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            if (input == null) throw new Exception("无法读取元数据");
+            byte[] buffer = new byte[16 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+            return output.toString(StandardCharsets.UTF_8.name());
+        }
+    }
+
+    private String readBase64FromUri(Uri uri) throws Exception {
+        try (InputStream input = getContext().getContentResolver().openInputStream(uri);
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            if (input == null) throw new Exception("无法读取二进制元数据");
+            byte[] buffer = new byte[16 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+            return Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP);
+        }
+    }
+
     private JSObject imageResponse(String uri, String name, String type, String folderUri) {
         JSObject response = new JSObject();
         response.put("uri", uri);
@@ -273,6 +529,25 @@ public class DownloadTargetPlugin extends Plugin {
         String safeValue = value == null ? "" : value.trim();
         if (safeValue.isEmpty()) return "download";
         return safeValue.replaceAll("[\\\\/:*?\"<>|\\u0000-\\u001F]", "_");
+    }
+
+    private String[] safePathSegments(String path) {
+        String[] rawSegments = path.replace("\\", "/").split("/");
+        java.util.ArrayList<String> segments = new java.util.ArrayList<>();
+        for (String rawSegment : rawSegments) {
+            String trimmedSegment = rawSegment == null ? "" : rawSegment.trim();
+            if (trimmedSegment.isEmpty()) continue;
+            String segment = sanitizeFileName(trimmedSegment);
+            if (!segment.isEmpty() && !".".equals(segment) && !"..".equals(segment)) {
+                segments.add(segment);
+            }
+        }
+        return segments.toArray(new String[0]);
+    }
+
+    private String safePathName(String path) {
+        String[] segments = safePathSegments(path);
+        return segments.length == 0 ? "metadata" : segments[segments.length - 1];
     }
 
     private void resolveOnMain(PluginCall call, JSObject response) {
