@@ -315,6 +315,11 @@
         <span>清理时同时删除封面缓存</span>
       </label>
 
+      <label class="cover-cache-toggle">
+        <input v-model="metadataTargetOnly" type="checkbox" @change="saveCloudMetadataStorageMode" />
+        <span>云盘索引和封面仅使用下载目录隐藏文件</span>
+      </label>
+
       <div class="cache-actions">
         <button class="ghost-button import-button" type="button" :disabled="operationBusy" @click="saveCacheLimit">
           <HardDrive :size="18" />
@@ -366,8 +371,10 @@ const message = ref('')
 const busy = ref(false)
 const importedManga = ref<{ id: string; title: string } | null>(null)
 const cacheStats = ref({ usedBytes: 0, pageBytes: 0, coverBytes: 0, pageCount: 0, coverCount: 0 })
-const cacheLimitMb = ref(Math.round(cloudService.getCloudCacheSettings().maxBytes / 1024 / 1024))
+const cloudCacheSettings = cloudService.getCloudCacheSettings()
+const cacheLimitMb = ref(Math.round(cloudCacheSettings.maxBytes / 1024 / 1024))
 const clearCoverCache = ref(false)
+const metadataTargetOnly = ref(cloudCacheSettings.metadataTargetOnly)
 const cloudThreadCount = ref(cloudThreadSettings.getSettings().threadCount)
 const jmThreadCount = ref(jmThreadSettings.getSettings().threadCount)
 const exhentaiCookie = ref(downloadSiteSettings.getSettings().exhentaiCookie)
@@ -902,12 +909,35 @@ async function saveCacheLimit() {
   try {
     const settings = await cloudService.updateCloudCacheSettings({
       maxBytes: Math.max(50, Number(cacheLimitMb.value) || 300) * 1024 * 1024,
+      metadataTargetOnly: metadataTargetOnly.value,
     })
     cacheLimitMb.value = Math.round(settings.maxBytes / 1024 / 1024)
+    metadataTargetOnly.value = settings.metadataTargetOnly
     await refreshCloudCacheStats()
     message.value = `云盘缓存上限已保存：${cacheLimitMb.value} MB`
   } catch (error) {
     message.value = error instanceof Error ? error.message : '保存缓存设置失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function saveCloudMetadataStorageMode() {
+  busy.value = true
+  try {
+    const settings = await cloudService.updateCloudCacheSettings({
+      maxBytes: Math.max(50, Number(cacheLimitMb.value) || 300) * 1024 * 1024,
+      metadataTargetOnly: metadataTargetOnly.value,
+    })
+    cacheLimitMb.value = Math.round(settings.maxBytes / 1024 / 1024)
+    metadataTargetOnly.value = settings.metadataTargetOnly
+    await refreshCloudCacheStats()
+    message.value = settings.metadataTargetOnly
+      ? '云盘索引和封面已切换为仅使用下载目录'
+      : '云盘索引和封面已切换为内部加下载目录双备份'
+  } catch (error) {
+    metadataTargetOnly.value = cloudService.getCloudCacheSettings().metadataTargetOnly
+    message.value = error instanceof Error ? error.message : '保存云盘索引存储方式失败'
   } finally {
     busy.value = false
   }

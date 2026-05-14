@@ -905,6 +905,7 @@ export const libraryService = {
       localMangas = await listMangas()
     }
 
+    await cloudService.ensureWebDavMetadataReady()
     const cloudMangas = cloudService.getWebDavIndexedMangas()
     const localIds = new Set(localMangas.map((manga) => manga.id))
     return [...cloudMangas.filter((manga) => !localIds.has(manga.id)), ...localMangas]
@@ -913,6 +914,7 @@ export const libraryService = {
 
   async getManga(id: string) {
     if (cloudService.isWebDavReaderId(id)) {
+      await cloudService.ensureWebDavMetadataReady()
       return cloudService.getWebDavIndexedMangas().find((manga) => manga.id === id)
     }
     return getRecord<MangaItem>('mangas', id)

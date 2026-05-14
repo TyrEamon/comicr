@@ -134,6 +134,7 @@ export interface CloudMangaItem {
 
 export interface CloudCacheSettings {
   maxBytes: number
+  metadataTargetOnly: boolean
 }
 
 export interface CloudCacheStats {
