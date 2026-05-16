@@ -348,18 +348,19 @@ public class DownloadTargetPlugin extends Plugin {
         }
 
         String fileName = segments[segments.length - 1];
-        DocumentFile existing = parent.findFile(fileName);
+        DocumentFile existing = findMetadataBlobFile(parent, fileName);
         if (existing != null && existing.isDirectory()) {
             throw new Exception("同名目录已存在，无法写入二进制元数据");
         }
         if (existing == null) {
-            existing = parent.createFile(type, fileName);
+            existing = parent.createFile("application/octet-stream", fileName);
         }
         if (existing == null || !existing.isFile()) {
             throw new Exception("无法创建二进制元数据文件");
         }
 
         writeBase64ToUri(existing.getUri(), base64);
+        deleteDuplicateMetadataBlobFiles(parent, fileName, existing);
         return existing;
     }
 
@@ -368,11 +369,39 @@ public class DownloadTargetPlugin extends Plugin {
         if (segments.length == 0) return null;
 
         DocumentFile current = root;
-        for (String segment : segments) {
+        for (int index = 0; index < segments.length; index++) {
+            String segment = segments[index];
             if (current == null || !current.isDirectory()) return null;
-            current = current.findFile(segment);
+            current = index == segments.length - 1
+                ? findMetadataBlobFile(current, segment)
+                : current.findFile(segment);
         }
         return current;
+    }
+
+    private DocumentFile findMetadataBlobFile(DocumentFile parent, String fileName) {
+        DocumentFile exact = parent.findFile(fileName);
+        if (exact != null) return exact;
+
+        for (DocumentFile child : parent.listFiles()) {
+            String childName = child.getName();
+            if (childName != null && child.isFile() && childName.startsWith(fileName + ".")) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private void deleteDuplicateMetadataBlobFiles(DocumentFile parent, String fileName, DocumentFile keep) {
+        String keepUri = keep.getUri().toString();
+        for (DocumentFile child : parent.listFiles()) {
+            String childName = child.getName();
+            if (childName == null || !child.isFile()) continue;
+            boolean matches = childName.equals(fileName) || childName.startsWith(fileName + ".");
+            if (matches && !keepUri.equals(child.getUri().toString())) {
+                child.delete();
+            }
+        }
     }
 
     private boolean deleteUri(String uriValue) {

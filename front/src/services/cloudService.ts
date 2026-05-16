@@ -37,6 +37,7 @@ const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bm
 const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
 const coverObjectUrls = new Map<string, string>()
 const pageObjectUrls = new Map<string, string>()
+const webDavPreviewPromises = new Map<string, Promise<{ imageCount: number; coverUrl: string }>>()
 const WEBDAV_RETRY_DELAYS_MS = [450, 1200, 2400]
 const WEBDAV_RETRY_STATUSES = new Set([429, 500, 502, 503, 504])
 
@@ -1218,22 +1219,20 @@ async function getCachedCoverUrl(path: string) {
 async function cacheCoverBlob(path: string, blob: Blob) {
   const coverPath = privateCoverPath(path)
   const externalCoverPath = targetCoverPath(path)
-  const remoteCoverPath = webDavCoverPath(path)
   const coverType = blob.type || 'image/jpeg'
-  const [savedToPrivateFiles, savedToTargetFiles, savedToWebDav] = await Promise.all([
+  const [savedToPrivateFiles, savedToTargetFiles] = await Promise.all([
     isMetadataTargetOnly() ? Promise.resolve(false) : writePrivateBlob(coverPath, blob),
     writeTargetBlob(externalCoverPath, blob),
-    writeWebDavBlob(remoteCoverPath, blob, coverType).then(() => true).catch(() => false),
   ])
 
-  if (savedToPrivateFiles || savedToTargetFiles || savedToWebDav) {
+  if (savedToPrivateFiles || savedToTargetFiles) {
     const preview = await getPreviewRecordAsync(path)
     await setPreviewRecord(path, {
       imageCount: preview?.imageCount ?? 0,
       firstImagePath: preview?.firstImagePath,
       coverFilePath: savedToPrivateFiles ? coverPath : isMetadataTargetOnly() ? undefined : preview?.coverFilePath,
       targetCoverPath: savedToTargetFiles ? externalCoverPath : preview?.targetCoverPath,
-      webDavCoverPath: savedToWebDav ? remoteCoverPath : preview?.webDavCoverPath,
+      webDavCoverPath: preview?.webDavCoverPath,
       coverType,
       coverSizeBytes: blob.size,
       coverUpdatedAt: Date.now(),
@@ -1607,40 +1606,52 @@ export const cloudService = {
   },
 
   async getWebDavMangaPreview(path: string) {
-    const cachedCoverUrl = await getCachedCoverUrl(path)
-    const cachedPreview = await getPreviewRecordAsync(path)
-    if (cachedCoverUrl && cachedPreview && cachedPreview.imageCount > 0) {
-      return {
-        imageCount: cachedPreview.imageCount,
-        coverUrl: cachedCoverUrl,
+    const normalizedPath = normalizeRelativePath(path)
+    const pendingPreview = webDavPreviewPromises.get(normalizedPath)
+    if (pendingPreview) return pendingPreview
+
+    const previewPromise = (async () => {
+      const cachedCoverUrl = await getCachedCoverUrl(normalizedPath)
+      const cachedPreview = await getPreviewRecordAsync(normalizedPath)
+      if (cachedCoverUrl && cachedPreview && cachedPreview.imageCount > 0) {
+        return {
+          imageCount: cachedPreview.imageCount,
+          coverUrl: cachedCoverUrl,
+        }
       }
-    }
 
-    const images = await getWebDavImageFiles(path)
-    const firstImage = images[0]
-    const imageCount = images.length
-    let coverUrl = cachedCoverUrl
+      const images = await getWebDavImageFiles(normalizedPath)
+      const firstImage = images[0]
+      const imageCount = images.length
+      let coverUrl = cachedCoverUrl
 
-    if (firstImage && !coverUrl) {
-      const blob = await fetchBlobByPath(firstImage.path)
-      coverUrl = await cacheCoverBlob(path, blob)
-    }
+      if (firstImage && !coverUrl) {
+        const blob = await fetchBlobByPath(firstImage.path)
+        coverUrl = await cacheCoverBlob(normalizedPath, blob)
+      }
 
-    const previewWithCover = await getPreviewRecordAsync(path)
-    await setPreviewRecord(path, {
-      imageCount,
-      firstImagePath: firstImage?.path,
-      coverFilePath: previewWithCover?.coverFilePath,
-      targetCoverPath: previewWithCover?.targetCoverPath,
-      coverType: previewWithCover?.coverType,
-      coverSizeBytes: previewWithCover?.coverSizeBytes,
-      coverUpdatedAt: previewWithCover?.coverUpdatedAt,
+      const previewWithCover = await getPreviewRecordAsync(normalizedPath)
+      await setPreviewRecord(normalizedPath, {
+        imageCount,
+        firstImagePath: firstImage?.path,
+        coverFilePath: previewWithCover?.coverFilePath,
+        targetCoverPath: previewWithCover?.targetCoverPath,
+        webDavCoverPath: previewWithCover?.webDavCoverPath,
+        coverType: previewWithCover?.coverType,
+        coverSizeBytes: previewWithCover?.coverSizeBytes,
+        coverUpdatedAt: previewWithCover?.coverUpdatedAt,
+      })
+
+      return {
+        imageCount,
+        coverUrl,
+      }
+    })().finally(() => {
+      webDavPreviewPromises.delete(normalizedPath)
     })
 
-    return {
-      imageCount,
-      coverUrl,
-    }
+    webDavPreviewPromises.set(normalizedPath, previewPromise)
+    return previewPromise
   },
 
   async getCachedWebDavCoverUrl(path: string) {
