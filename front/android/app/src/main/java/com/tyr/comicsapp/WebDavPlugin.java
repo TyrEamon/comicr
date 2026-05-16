@@ -22,6 +22,7 @@ import okhttp3.ResponseBody;
 @CapacitorPlugin(name = "WebDav")
 public class WebDavPlugin extends Plugin {
     private static final MediaType XML_MEDIA_TYPE = MediaType.parse("application/xml; charset=utf-8");
+    private static final MediaType OCTET_STREAM_MEDIA_TYPE = MediaType.parse("application/octet-stream");
 
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final OkHttpClient client = new OkHttpClient.Builder()
@@ -98,6 +99,73 @@ public class WebDavPlugin extends Plugin {
                 resolveOnMain(call, result);
             } catch (IOException error) {
                 rejectOnMain(call, error.getMessage() == null ? "WebDAV 文件下载失败" : error.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void putFile(PluginCall call) {
+        String url = call.getString("url");
+        String authorization = call.getString("authorization", "");
+        String contentType = call.getString("contentType", "application/octet-stream");
+        String base64 = call.getString("base64", "");
+        JSObject proxy = call.getObject("proxy");
+        final JSObject requestProxy = proxy == null ? new JSObject() : proxy;
+
+        if (url == null || url.isEmpty()) {
+            call.reject("缺少 WebDAV 文件地址");
+            return;
+        }
+
+        executor.execute(() -> {
+            OkHttpClient requestClient = ProxySettings.apply(client, requestProxy);
+            MediaType mediaType = MediaType.parse(contentType);
+            if (mediaType == null) mediaType = OCTET_STREAM_MEDIA_TYPE;
+            byte[] bytes = Base64.decode(base64 == null ? "" : base64, Base64.DEFAULT);
+            Request request = new Request.Builder()
+                .url(url)
+                .put(RequestBody.create(bytes, mediaType))
+                .header("Authorization", authorization)
+                .build();
+
+            try (Response response = requestClient.newCall(request).execute()) {
+                JSObject result = new JSObject();
+                result.put("status", response.code());
+                result.put("data", response.body() == null ? "" : response.body().string());
+                resolveOnMain(call, result);
+            } catch (IOException error) {
+                rejectOnMain(call, error.getMessage() == null ? "WebDAV 文件上传失败" : error.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void mkcol(PluginCall call) {
+        String url = call.getString("url");
+        String authorization = call.getString("authorization", "");
+        JSObject proxy = call.getObject("proxy");
+        final JSObject requestProxy = proxy == null ? new JSObject() : proxy;
+
+        if (url == null || url.isEmpty()) {
+            call.reject("缺少 WebDAV 目录地址");
+            return;
+        }
+
+        executor.execute(() -> {
+            OkHttpClient requestClient = ProxySettings.apply(client, requestProxy);
+            Request request = new Request.Builder()
+                .url(url)
+                .method("MKCOL", RequestBody.create(new byte[0], OCTET_STREAM_MEDIA_TYPE))
+                .header("Authorization", authorization)
+                .build();
+
+            try (Response response = requestClient.newCall(request).execute()) {
+                JSObject result = new JSObject();
+                result.put("status", response.code());
+                result.put("data", response.body() == null ? "" : response.body().string());
+                resolveOnMain(call, result);
+            } catch (IOException error) {
+                rejectOnMain(call, error.getMessage() == null ? "WebDAV 创建目录失败" : error.getMessage());
             }
         });
     }

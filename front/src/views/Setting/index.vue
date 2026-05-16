@@ -325,6 +325,18 @@
           <HardDrive :size="18" />
           保存上限
         </button>
+        <button class="ghost-button import-button" type="button" :disabled="operationBusy || !hasCustomDownloadTarget" @click="syncCloudMetadataBackup">
+          <RefreshCw :size="18" />
+          同步本地备份
+        </button>
+        <button class="ghost-button import-button" type="button" :disabled="operationBusy || !hasWebDavConnection" @click="uploadCloudMetadataBackup">
+          <Upload :size="18" />
+          上传云端备份
+        </button>
+        <button class="ghost-button import-button" type="button" :disabled="operationBusy || !hasWebDavConnection" @click="syncCloudMetadataFromCloudBackup">
+          <Download :size="18" />
+          同步云端备份
+        </button>
         <button class="ghost-button import-button danger-action" type="button" :disabled="operationBusy || cacheStats.usedBytes === 0" @click="clearCloudCache">
           <Trash2 :size="18" />
           清理缓存
@@ -358,7 +370,7 @@ import { nativeHttpService } from '@/services/nativeHttpService'
 import { networkProxySettings } from '@/services/networkProxySettings'
 import { useImportTaskStore, type ImportTaskManga } from '@/stores/importTaskStore'
 import { useLibraryStore } from '@/stores/libraryStore'
-import { Archive, BookOpen, ChevronDown, FolderOpen, HardDrive, Images, RotateCcw, Trash2, Wifi } from 'lucide-vue-next'
+import { Archive, BookOpen, ChevronDown, Download, FolderOpen, HardDrive, Images, RefreshCw, RotateCcw, Trash2, Upload, Wifi } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 
 const library = useLibraryStore()
@@ -398,6 +410,10 @@ const downloadTargetLabel = computed(() => {
 const hasCustomDownloadTarget = computed(() => {
   downloadTargetVersion.value
   return Boolean(downloadTargetService.getTarget())
+})
+const hasWebDavConnection = computed(() => {
+  const config = cloudService.getWebDavConfig()
+  return Boolean(config.endpointUrl && config.username && config.password)
 })
 const proxySummary = computed(() => {
   proxySettingsVersion.value
@@ -938,6 +954,45 @@ async function saveCloudMetadataStorageMode() {
   } catch (error) {
     metadataTargetOnly.value = cloudService.getCloudCacheSettings().metadataTargetOnly
     message.value = error instanceof Error ? error.message : '保存云盘索引存储方式失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function syncCloudMetadataBackup() {
+  busy.value = true
+  try {
+    const result = await cloudService.syncWebDavMetadataFromDownloadTarget()
+    await refreshCloudCacheStats()
+    message.value = `已同步本地云盘备份：${result.mangaCount} 本，${result.previewCount} 个封面记录`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '同步本地云盘备份失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function uploadCloudMetadataBackup() {
+  busy.value = true
+  try {
+    const result = await cloudService.uploadWebDavMetadataBackup()
+    await refreshCloudCacheStats()
+    message.value = `已上传 WebDAV 云端备份：${result.mangaCount} 本，${result.previewCount} 个封面记录`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '上传 WebDAV 云端备份失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function syncCloudMetadataFromCloudBackup() {
+  busy.value = true
+  try {
+    const result = await cloudService.syncWebDavMetadataFromCloudBackup()
+    await refreshCloudCacheStats()
+    message.value = `已同步 WebDAV 云端备份：${result.mangaCount} 本，${result.previewCount} 个封面记录`
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '同步 WebDAV 云端备份失败'
   } finally {
     busy.value = false
   }

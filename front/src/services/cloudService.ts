@@ -26,6 +26,10 @@ const WEBDAV_PRIVATE_COVER_DIR = `${WEBDAV_PRIVATE_ROOT}/covers`
 const WEBDAV_TARGET_INDEX_FILE = '.comicr-webdav-index.json'
 const WEBDAV_TARGET_PREVIEWS_FILE = '.comicr-webdav-previews.json'
 const WEBDAV_TARGET_COVER_DIR = '.comicr-webdav-covers'
+const WEBDAV_REMOTE_BACKUP_DIR = '.comicr-backup'
+const WEBDAV_REMOTE_INDEX_PATH = `${WEBDAV_REMOTE_BACKUP_DIR}/index.json`
+const WEBDAV_REMOTE_PREVIEWS_PATH = `${WEBDAV_REMOTE_BACKUP_DIR}/previews.json`
+const WEBDAV_REMOTE_COVER_DIR = `${WEBDAV_REMOTE_BACKUP_DIR}/covers`
 const LOCAL_PROVIDER_ID = 'local-archive'
 const WEBDAV_PROVIDER_ID = 'webdav'
 const DEFAULT_CLOUD_CACHE_BYTES = 300 * 1024 * 1024
@@ -66,6 +70,7 @@ interface WebDavPreviewRecord {
   firstImagePath?: string
   coverFilePath?: string
   targetCoverPath?: string
+  webDavCoverPath?: string
   coverType?: string
   coverSizeBytes?: number
   coverUpdatedAt?: number
@@ -74,6 +79,11 @@ interface WebDavPreviewRecord {
 interface WebDavIndexRecord {
   items: Array<Omit<CloudMangaItem, 'coverUrl'>>
   syncedAt: number
+}
+
+interface WebDavMetadataSyncResult {
+  mangaCount: number
+  previewCount: number
 }
 
 interface CloudPageCacheRecord {
@@ -100,6 +110,11 @@ interface NativeWebDavFileResult {
   base64: string
 }
 
+interface NativeWebDavWriteResult {
+  status: number
+  data: string
+}
+
 interface NativeWebDavPlugin {
   propfind(options: {
     url: string
@@ -113,6 +128,18 @@ interface NativeWebDavPlugin {
     authorization: string
     proxy?: NativeProxyConfig
   }): Promise<NativeWebDavFileResult>
+  putFile?(options: {
+    url: string
+    authorization: string
+    contentType: string
+    base64: string
+    proxy?: NativeProxyConfig
+  }): Promise<NativeWebDavWriteResult>
+  mkcol?(options: {
+    url: string
+    authorization: string
+    proxy?: NativeProxyConfig
+  }): Promise<NativeWebDavWriteResult>
 }
 
 const nativeWebDav = registerPlugin<NativeWebDavPlugin>('WebDav')
@@ -182,6 +209,10 @@ function privateCoverPath(path: string) {
 
 function targetCoverPath(path: string) {
   return `${WEBDAV_TARGET_COVER_DIR}/${storageSafeName(path)}.bin`
+}
+
+function webDavCoverPath(path: string) {
+  return `${WEBDAV_REMOTE_COVER_DIR}/${storageSafeName(path)}.bin`
 }
 
 function privateParentPath(path: string) {
@@ -546,6 +577,128 @@ async function loadIndexCacheAsync() {
   return targetRecord
 }
 
+async function syncMetadataFromDownloadTarget(): Promise<WebDavMetadataSyncResult> {
+  const [targetRecord, targetPreviewCache] = await Promise.all([
+    readTargetJsonRecord<WebDavIndexRecord>(WEBDAV_TARGET_INDEX_FILE),
+    readTargetJsonRecord<Record<string, WebDavPreviewRecord>>(WEBDAV_TARGET_PREVIEWS_FILE),
+  ])
+
+  const hasIndex = Boolean(targetRecord && Array.isArray(targetRecord.items))
+  const hasPreviews = Boolean(targetPreviewCache && typeof targetPreviewCache === 'object' && !Array.isArray(targetPreviewCache))
+  if (!hasIndex && !hasPreviews) {
+    throw new Error('下载目录里没有找到云盘备份索引')
+  }
+
+  if (hasIndex && targetRecord) {
+    saveIndexRecord(targetRecord)
+    void writeIndexCachePrivate(targetRecord)
+  }
+
+  if (hasPreviews && targetPreviewCache) {
+    savePreviewCache(targetPreviewCache)
+    void writePreviewCachePrivate(targetPreviewCache)
+  }
+
+  previewCacheHydrated = true
+  indexCacheHydrated = true
+  previewCacheHydrationPromise = null
+  indexCacheHydrationPromise = null
+
+  return {
+    mangaCount: hasIndex && targetRecord ? targetRecord.items.length : 0,
+    previewCount: hasPreviews && targetPreviewCache ? Object.keys(targetPreviewCache).length : 0,
+  }
+}
+
+async function readLocalCoverBlobForBackup(record: WebDavPreviewRecord) {
+  const coverType = record.coverType || 'image/jpeg'
+  if (!isMetadataTargetOnly() && record.coverFilePath) {
+    const privateBlob = await readPrivateBlob(record.coverFilePath, coverType)
+    if (privateBlob) return privateBlob
+  }
+
+  if (record.targetCoverPath) {
+    const targetBlob = await readTargetBlob(record.targetCoverPath, coverType)
+    if (targetBlob) return targetBlob
+  }
+
+  return null
+}
+
+async function uploadMetadataToWebDavBackup(): Promise<WebDavMetadataSyncResult> {
+  const [indexRecord, previewCache] = await Promise.all([
+    loadIndexCacheAsync(),
+    loadPreviewCacheAsync(),
+  ])
+  if (indexRecord.items.length === 0 && Object.keys(previewCache).length === 0) {
+    throw new Error('当前还没有可上传的云盘备份索引')
+  }
+
+  await ensureWebDavDirectory(WEBDAV_REMOTE_COVER_DIR)
+  const nextPreviewCache = JSON.parse(JSON.stringify(previewCache)) as Record<string, WebDavPreviewRecord>
+
+  for (const [path, record] of Object.entries(nextPreviewCache)) {
+    const blob = await readLocalCoverBlobForBackup(record)
+    if (!blob) continue
+
+    const remotePath = record.webDavCoverPath || webDavCoverPath(path)
+    await writeWebDavBlob(remotePath, blob, record.coverType || blob.type || 'image/jpeg')
+    nextPreviewCache[path] = {
+      ...record,
+      webDavCoverPath: remotePath,
+      coverType: record.coverType || blob.type || 'image/jpeg',
+      coverSizeBytes: record.coverSizeBytes || blob.size,
+      coverUpdatedAt: record.coverUpdatedAt || Date.now(),
+    }
+  }
+
+  await Promise.all([
+    writeWebDavJsonRecord(WEBDAV_REMOTE_INDEX_PATH, indexRecord),
+    writeWebDavJsonRecord(WEBDAV_REMOTE_PREVIEWS_PATH, nextPreviewCache),
+  ])
+
+  savePreviewCache(nextPreviewCache)
+  void writePreviewCachePrivate(nextPreviewCache)
+
+  return {
+    mangaCount: indexRecord.items.length,
+    previewCount: Object.keys(nextPreviewCache).length,
+  }
+}
+
+async function syncMetadataFromWebDavBackup(): Promise<WebDavMetadataSyncResult> {
+  const [indexRecord, previewCache] = await Promise.all([
+    readWebDavJsonRecord<WebDavIndexRecord>(WEBDAV_REMOTE_INDEX_PATH),
+    readWebDavJsonRecord<Record<string, WebDavPreviewRecord>>(WEBDAV_REMOTE_PREVIEWS_PATH),
+  ])
+
+  const hasIndex = Boolean(indexRecord && Array.isArray(indexRecord.items))
+  const hasPreviews = Boolean(previewCache && typeof previewCache === 'object' && !Array.isArray(previewCache))
+  if (!hasIndex && !hasPreviews) {
+    throw new Error('WebDAV 云端没有找到 Comicr 备份目录')
+  }
+
+  if (hasIndex && indexRecord) {
+    saveIndexRecord(indexRecord)
+    void writeIndexCachePrivate(indexRecord)
+  }
+
+  if (hasPreviews && previewCache) {
+    savePreviewCache(previewCache)
+    void writePreviewCachePrivate(previewCache)
+  }
+
+  previewCacheHydrated = true
+  indexCacheHydrated = true
+  previewCacheHydrationPromise = null
+  indexCacheHydrationPromise = null
+
+  return {
+    mangaCount: hasIndex && indexRecord ? indexRecord.items.length : 0,
+    previewCount: hasPreviews && previewCache ? Object.keys(previewCache).length : 0,
+  }
+}
+
 function resetWebDavMetadataHydration() {
   previewCacheHydrated = false
   indexCacheHydrated = false
@@ -637,6 +790,11 @@ function isImageName(name: string) {
 
 function isCoverImageName(name: string) {
   return /^(cover|folder|thumb|thumbnail)\.[^.]+$/i.test(name.trim())
+}
+
+function isWebDavBackupPath(path: string) {
+  const normalized = normalizeRelativePath(path)
+  return normalized === `/${WEBDAV_REMOTE_BACKUP_DIR}` || normalized.startsWith(`/${WEBDAV_REMOTE_BACKUP_DIR}/`)
 }
 
 function encodeBasicAuth(username: string, password: string) {
@@ -910,6 +1068,116 @@ async function fetchBlobByPath(relativePath: string, isDir = false) {
   return result.blob
 }
 
+async function mkcolWebDavPath(relativePath: string) {
+  const config = loadWebDavConfig()
+  if (!config) {
+    throw new Error('请先连接 WebDAV')
+  }
+
+  const authorization = encodeBasicAuth(config.username, config.password)
+  await requestWithWebDavRetry(
+    async () => {
+      if (isAndroidNative()) {
+        if (!nativeWebDav.mkcol) {
+          throw new Error('当前 APK 不支持 WebDAV 云端备份，请更新后再试')
+        }
+
+        const nativeResult = await nativeWebDav.mkcol({
+          url: buildResourceUrl(config, relativePath, true).toString(),
+          authorization,
+          ...nativeProxyOption(),
+        })
+        return {
+          status: nativeResult.status,
+        }
+      }
+
+      const response = await fetch(buildResourceUrl(config, relativePath, true), {
+        method: 'MKCOL',
+        headers: {
+          Authorization: authorization,
+        },
+      })
+      return {
+        status: response.status,
+      }
+    },
+    '创建 WebDAV 备份目录',
+    (status) => status === 201 || status === 200 || status === 204 || status === 405,
+  )
+}
+
+async function ensureWebDavDirectory(relativePath: string) {
+  const segments = normalizeRelativePath(relativePath).split('/').filter(Boolean)
+  let current = ''
+  for (const segment of segments) {
+    current = normalizeRelativePath(`${current}/${segment}`)
+    await mkcolWebDavPath(current)
+  }
+}
+
+async function writeWebDavBlob(relativePath: string, blob: Blob, contentType = blob.type || 'application/octet-stream') {
+  const config = loadWebDavConfig()
+  if (!config) {
+    throw new Error('请先连接 WebDAV')
+  }
+
+  await ensureWebDavDirectory(privateParentPath(normalizeRelativePath(relativePath)))
+  const authorization = encodeBasicAuth(config.username, config.password)
+  await requestWithWebDavRetry(
+    async () => {
+      if (isAndroidNative()) {
+        if (!nativeWebDav.putFile) {
+          throw new Error('当前 APK 不支持 WebDAV 云端备份，请更新后再试')
+        }
+
+        const nativeResult = await nativeWebDav.putFile({
+          url: buildResourceUrl(config, relativePath).toString(),
+          authorization,
+          contentType,
+          base64: await blobToBase64(blob),
+          ...nativeProxyOption(),
+        })
+        return {
+          status: nativeResult.status,
+        }
+      }
+
+      const response = await fetch(buildResourceUrl(config, relativePath), {
+        method: 'PUT',
+        headers: {
+          Authorization: authorization,
+          'Content-Type': contentType,
+        },
+        body: blob,
+      })
+      return {
+        status: response.status,
+      }
+    },
+    '上传 WebDAV 备份文件',
+  )
+}
+
+async function readWebDavJsonRecord<T>(relativePath: string): Promise<T | null> {
+  try {
+    const blob = await fetchBlobByPath(relativePath)
+    const text = await blob.text()
+    return text ? JSON.parse(text) as T : null
+  } catch {
+    return null
+  }
+}
+
+async function writeWebDavJsonRecord<T>(relativePath: string, value: T) {
+  await ensureWebDavDirectory(WEBDAV_REMOTE_BACKUP_DIR)
+  await writeWebDavBlob(
+    relativePath,
+    new Blob([JSON.stringify(value)], { type: 'application/json' }),
+    'application/json; charset=utf-8',
+  )
+}
+
 async function getCachedCoverUrl(path: string) {
   const cachedUrl = coverObjectUrls.get(path)
   if (cachedUrl) return cachedUrl
@@ -922,10 +1190,16 @@ async function getCachedCoverUrl(path: string) {
   const targetBlob = !privateBlob && preview?.targetCoverPath
     ? await readTargetBlob(preview.targetCoverPath, coverType)
     : null
-  const blob = privateBlob || targetBlob
+  const remoteBlob = !privateBlob && !targetBlob && preview?.webDavCoverPath
+    ? await fetchBlobByPath(preview.webDavCoverPath).catch(() => null)
+    : null
+  const blob = privateBlob || targetBlob || remoteBlob
   if (blob) {
     if (!isMetadataTargetOnly() && !privateBlob && preview?.coverFilePath) {
       void writePrivateBlob(preview.coverFilePath, blob)
+    }
+    if (!targetBlob && preview?.targetCoverPath) {
+      void writeTargetBlob(preview.targetCoverPath, blob)
     }
     const objectUrl = URL.createObjectURL(blob)
     coverObjectUrls.set(path, objectUrl)
@@ -944,19 +1218,22 @@ async function getCachedCoverUrl(path: string) {
 async function cacheCoverBlob(path: string, blob: Blob) {
   const coverPath = privateCoverPath(path)
   const externalCoverPath = targetCoverPath(path)
+  const remoteCoverPath = webDavCoverPath(path)
   const coverType = blob.type || 'image/jpeg'
-  const [savedToPrivateFiles, savedToTargetFiles] = await Promise.all([
+  const [savedToPrivateFiles, savedToTargetFiles, savedToWebDav] = await Promise.all([
     isMetadataTargetOnly() ? Promise.resolve(false) : writePrivateBlob(coverPath, blob),
     writeTargetBlob(externalCoverPath, blob),
+    writeWebDavBlob(remoteCoverPath, blob, coverType).then(() => true).catch(() => false),
   ])
 
-  if (savedToPrivateFiles || savedToTargetFiles) {
+  if (savedToPrivateFiles || savedToTargetFiles || savedToWebDav) {
     const preview = await getPreviewRecordAsync(path)
     await setPreviewRecord(path, {
       imageCount: preview?.imageCount ?? 0,
       firstImagePath: preview?.firstImagePath,
       coverFilePath: savedToPrivateFiles ? coverPath : isMetadataTargetOnly() ? undefined : preview?.coverFilePath,
       targetCoverPath: savedToTargetFiles ? externalCoverPath : preview?.targetCoverPath,
+      webDavCoverPath: savedToWebDav ? remoteCoverPath : preview?.webDavCoverPath,
       coverType,
       coverSizeBytes: blob.size,
       coverUpdatedAt: Date.now(),
@@ -1108,7 +1385,7 @@ async function getWebDavImageFiles(path: string) {
   const directImages = toWebDavImageFiles(items)
 
   const childFolders = items
-    .filter((item) => item.isDir)
+    .filter((item) => item.isDir && !isWebDavBackupPath(item.path))
     .sort((left, right) => collator.compare(left.name, right.name))
   const directContentImages = directImages.filter((image) => !isCoverImageName(image.name))
 
@@ -1135,6 +1412,18 @@ export const cloudService = {
 
   async ensureWebDavMetadataReady() {
     await hydrateWebDavPrivateMetadata()
+  },
+
+  async syncWebDavMetadataFromDownloadTarget() {
+    return syncMetadataFromDownloadTarget()
+  },
+
+  async uploadWebDavMetadataBackup() {
+    return uploadMetadataToWebDavBackup()
+  },
+
+  async syncWebDavMetadataFromCloudBackup() {
+    return syncMetadataFromWebDavBackup()
   },
 
   async listProviders(): Promise<ProviderSummary[]> {
@@ -1247,7 +1536,7 @@ export const cloudService = {
 
     const items = await propfind(path, 1)
     return items
-      .filter((item) => item.isDir)
+      .filter((item) => item.isDir && !isWebDavBackupPath(item.path))
       .sort((left, right) => collator.compare(left.name, right.name))
       .map((item) => ({
         id: item.path || '/',
